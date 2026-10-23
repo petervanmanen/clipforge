@@ -1,0 +1,74 @@
+name: TestFlight
+
+# Builds the iPhone app and uploads it to App Store Connect / TestFlight.
+# Runs by hand (Actions › TestFlight › Run workflow) or when a version tag like v1.0.1 is pushed.
+# Needs three repository secrets — see docs/appstore/TESTFLIGHT.md.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          if [ -z "$ASC_API_KEY_P8" ]; then
+            echo "::error::Missing secrets. Add ASC_KEY_ID, ASC_ISSUER_ID and ASC_API_KEY_P8 (see docs/appstore/TESTFLIGHT.md)."
+            exit 1
+          fi
+          printf '%s\n' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Work out version and build number
+        run: |
+          # Build numbers must always increase; build 1 was uploaded by hand.
+          echo "BUILD_NUMBER=$((100 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION_SETTING=MARKETING_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+
+      # The archive is built unsigned: CI has no certificates. Export signs it with Apple's
+      # cloud-managed distribution certificate, using the API key.
+      - name: Archive
+        run: >
+          xcodebuild archive
+          -project iOS/FitMovie.xcodeproj -scheme FitMovie
+          -destination 'generic/platform=iOS'
+          -archivePath "$RUNNER_TEMP/FitMovie.xcarchive"
+          CURRENT_PROJECT_VERSION=$BUILD_NUMBER $VERSION_SETTING
+          CODE_SIGNING_ALLOWED=NO
+
+      - name: Sign and upload to TestFlight
+        run: >
+          xcodebuild -exportArchive
+          -archivePath "$RUNNER_TEMP/FitMovie.xcarchive"
+          -exportPath "$RUNNER_TEMP/export"
+          -exportOptionsPlist iOS/ExportOptions-TestFlight.plist
+          -allowProvisioningUpdates
+          -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"
+          -authenticationKeyID "${{ secrets.ASC_KEY_ID }}"
+          -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"
+
+      - name: Summary
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$RUNNER_TEMP/FitMovie.xcarchive/Info.plist")
+          echo "Uploaded FitMovie $VERSION ($BUILD_NUMBER). It shows up in TestFlight after Apple's processing (10–30 min)." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"

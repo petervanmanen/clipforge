@@ -73,6 +73,9 @@ Tests/FitMovieTests/           FITTests (+ FITWriter), TimelineTests, PipelineTe
 scripts/                        build_app.sh, make_icon.swift
 Resources/                      AppIcon.icns / AppIcon.png (generated; committed)
 .github/workflows/build.yml     CI: macOS tests + app zip; iOS simulator compile check
+.github/workflows/testflight.yml  Archive + upload to TestFlight (manual or v* tag); see docs/appstore/TESTFLIGHT.md
+docs/appstore/                  Listing text, review notes, TestFlight setup, sample FIT files (scripts/make_sample_fit.swift)
+docs/PRIVACY.md                 Privacy policy (linked from App Store Connect; keep it accurate)
 ```
 
 ## How it works
@@ -148,6 +151,14 @@ While dragging on the timeline or a trim handle, the preview shows `scrubImage` 
 - **Mac shortcuts:** the transport bar uses keys without modifiers, which steal keystrokes from text fields. Don't add free-text fields there.
 - **Audio tracks:** iPhone spatial audio adds an `apac` track, which is skipped. Audio is often a few milliseconds shorter than video, so only the overlap of each kept range is inserted.
 - **iOS icon:** it must be opaque. `make_icon.swift` writes it with `noneSkipLast`.
+
+## Releasing the iPhone app
+- App Store Connect app: FitMovie, bundle ID `nl.petervanmanen.fitmovie`, team `9XCZUWMGXB`. Build 1 (version 1.0) was uploaded from this Mac.
+- CI uploads: the TestFlight workflow archives **unsigned** (`CODE_SIGNING_ALLOWED=NO`), then `-exportArchive` with `-allowProvisioningUpdates` and the API key signs with Apple's cloud-managed distribution certificate.
+  - This was verified locally: the exported IPA had an Apple Distribution signature, App Store entitlements and the overridden build number, and this Mac has no distribution certificate.
+  - Build number = 100 + run number. A `v*` tag sets `MARKETING_VERSION`.
+- Secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8` (Admin-role key). Never commit `.p8` files.
+- The shared scheme `iOS/FitMovie.xcodeproj/xcshareddata/xcschemes/FitMovie.xcscheme` is required by `xcodebuild archive` on CI.
 
 ## Conventions
 - Match the existing style: value-type settings, one `EditorModel`, panels as private SwiftUI structs, comments only where something is non-obvious.

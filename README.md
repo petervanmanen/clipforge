@@ -28,7 +28,7 @@ open build/FitMovie.app
 
 The app icon is drawn by `scripts/make_icon.swift` (`swift scripts/make_icon.swift` regenerates `Resources/AppIcon.icns`).
 
-GitHub Actions (`.github/workflows/build.yml`) runs the tests, builds a universal Mac `FitMovie.zip` (download it from the run's artifacts) and compiles the iPhone app on every push and pull request. Pushing a `v*` tag (e.g. `v1.0`) also publishes it as a GitHub release.
+GitHub Actions (`.github/workflows/build.yml`) runs the tests, builds a universal Mac `FitMovie.zip` (download it from the run's artifacts) and compiles the iPhone app on every push and pull request. Pushing a `v*` tag (e.g. `v1.0`) also publishes it as a GitHub release, and the **TestFlight** workflow uploads the iPhone app to App Store Connect (setup: [docs/appstore/TESTFLIGHT.md](docs/appstore/TESTFLIGHT.md)).
 
 Run the tests with `swift test`. They cover FIT decoding, trim math, and a full end-to-end export that checks stabilization reduces shake. You can also open `Package.swift` in Xcode.
 
