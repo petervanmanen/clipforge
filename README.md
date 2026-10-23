@@ -34,3 +34,7 @@ Run the tests with `swift test`. They cover FIT decoding, trim math, and a full 
 - `Engine/`: composition (trim/cut/audio mix), per-frame rendering (stabilization, filters, overlay), stabilization analysis and export.
 - `Models/`: the edit timeline, settings and the editor view model.
 - `UI/`: the SwiftUI views.
+
+## License
+
+MIT – see [LICENSE](LICENSE).
