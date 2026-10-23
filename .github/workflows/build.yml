@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Test
+        run: swift test
+
+      - name: Build app
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '1.0' }}
+        run: |
+          export VERSION="${VERSION#v}"
+          ./scripts/build_app.sh
+          ditto -c -k --keepParent build/ClipForge.app build/ClipForge.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipForge
+          path: build/ClipForge.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" build/ClipForge.zip --generate-notes

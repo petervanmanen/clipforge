@@ -3,13 +3,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/ClipForge"
+# Universal binary (Apple silicon + Intel).
+BUILD_FLAGS=(-c release --arch arm64 --arch x86_64)
+swift build "${BUILD_FLAGS[@]}"
+BIN="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)/ClipForge"
 APP="build/ClipForge.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/ClipForge"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,8 +24,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>app.clipforge.ClipForge</string>
     <key>CFBundleExecutable</key><string>ClipForge</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION:-1.0}</string>
+    <key>CFBundleVersion</key><string>${BUILD_NUMBER:-1}</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
     <key>NSHighResolutionCapable</key><true/>

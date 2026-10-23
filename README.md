@@ -20,6 +20,10 @@ You can drop videos, `.fit` files and music onto the window, or open them with t
 open build/ClipForge.app
 ```
 
+The app icon is drawn by `scripts/make_icon.swift` (`swift scripts/make_icon.swift` regenerates `Resources/AppIcon.icns`).
+
+GitHub Actions (`.github/workflows/build.yml`) runs the tests and builds a universal `ClipForge.zip` on every push and pull request; download it from the run's artifacts. Pushing a `v*` tag (e.g. `v1.0`) also publishes it as a GitHub release.
+
 Run the tests with `swift test`. They cover FIT decoding, trim math, and a full end-to-end export that checks stabilization reduces shake. You can also open `Package.swift` in Xcode.
 
 ## Layout
