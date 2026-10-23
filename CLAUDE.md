@@ -152,7 +152,7 @@ While dragging on the timeline or a trim handle, the preview shows `scrubImage` 
 ## Conventions
 - Match the existing style: value-type settings, one `EditorModel`, panels as private SwiftUI structs, comments only where something is non-obvious.
 - Keep the engine free of SwiftUI so it can be tested headless (`@testable import FitMovie`). Add a test for engine changes. `PipelineTests` shows how to generate synthetic video, audio and FIT data.
-- Commit messages end with a `Co-Authored-By:` line. The repository is `git@github.com:petervanmanen/clipforge.git` on branch `main`, and CI runs on every push.
+- Commit messages end with a `Co-Authored-By:` line. The repository is `git@github.com:petervanmanen/fitmovie.git` on branch `main`, and CI runs on every push.
 
 ## Known limitations / next steps
 See the ⬜ and 🟡 items in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). The most important:
