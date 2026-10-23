@@ -80,10 +80,7 @@ final class PipelineTests: XCTestCase {
 
     /// Mean absolute frame-to-frame acceleration of the measured camera path: high for shake, ~0 for smooth.
     private func jitter(_ a: StabilizationAnalysis) -> Double {
-        func j(_ v: [Double]) -> Double {
-            zip(v.dropFirst(2), zip(v.dropFirst(), v)).map { abs($0 - 2 * $1.0 + $1.1) }.reduce(0, +) / Double(max(1, v.count - 2))
-        }
-        return j(a.x) + j(a.y)
+        meanAcceleration(a.x) + meanAcceleration(a.y)
     }
 
     @MainActor
@@ -191,6 +188,17 @@ final class PipelineTests: XCTestCase {
         CGImageDestinationAddImage(dest, image, nil)
         CGImageDestinationFinalize(dest)
     }
+}
+
+/// Mean absolute second difference of a path: high for shake, ~0 for a smooth path.
+func meanAcceleration(_ v: [Double]) -> Double {
+    guard v.count > 2 else { return 0 }
+    var sum = 0.0
+    for i in 2..<v.count {
+        let acceleration: Double = v[i] - 2 * v[i - 1] + v[i - 2]
+        sum += abs(acceleration)
+    }
+    return sum / Double(v.count - 2)
 }
 
 struct SeededRandom {

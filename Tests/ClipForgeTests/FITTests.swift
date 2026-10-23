@@ -143,10 +143,7 @@ final class TimelineTests: XCTestCase {
         XCTAssertTrue(path.dx.allSatisfy { abs($0) <= 96.0001 })
         XCTAssertTrue(path.dy.allSatisfy { abs($0) <= 54.0001 })
 
-        func jitter(_ v: [Double]) -> Double {
-            zip(v.dropFirst(2), zip(v.dropFirst(), v)).map { abs($0 - 2 * $1.0 + $1.1) }.reduce(0, +) / Double(v.count)
-        }
-        let corrected = zip(x, path.dx).map(+)
-        XCTAssertLessThan(jitter(corrected), jitter(x) * 0.3)
+        let corrected = zip(x, path.dx).map { $0 + $1 }
+        XCTAssertLessThan(meanAcceleration(corrected), meanAcceleration(x) * 0.3)
     }
 }
