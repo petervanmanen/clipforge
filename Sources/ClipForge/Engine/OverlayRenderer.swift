@@ -151,7 +151,7 @@ final class OverlayRenderer: @unchecked Sendable {
             let l = line(t.label, labelFont, labelColor)
             let v = line(t.value, valueFont, textColor)
             let u = line(t.unit, unitFont, labelColor)
-            let w = max(width(l), width(v) + (t.unit.isEmpty ? 0 : base * 0.15 + width(u))) + barWidth + base * 0.3
+            let w = max(self.width(l), self.width(v) + (t.unit.isEmpty ? 0 : base * 0.15 + self.width(u))) + barWidth + base * 0.3
             return Laid(label: l, value: v, unit: u, accent: t.accent, size: CGSize(width: w, height: base * 1.5))
         }
 
