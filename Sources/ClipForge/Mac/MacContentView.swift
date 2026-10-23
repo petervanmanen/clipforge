@@ -2,7 +2,7 @@ import AVKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct ContentView: View {
+struct MacContentView: View {
     @EnvironmentObject private var model: EditorModel
     @State private var showInspector = true
     @State private var isDropTargeted = false
@@ -30,15 +30,16 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                Button { model.openVideoPanel() } label: { Label("Open", systemImage: "folder") }
+                Button { model.requestImport(.video) } label: { Label("Open", systemImage: "folder") }
                     .help("Open a video (⌘O)")
-                Button { model.exportPanel() } label: { Label("Export", systemImage: "square.and.arrow.up") }
+                Button { model.requestExport() } label: { Label("Export", systemImage: "square.and.arrow.up") }
                     .disabled(model.source == nil || model.exportProgress != nil)
                     .help("Export the edited video (⌘E)")
                 Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
             }
         }
         .navigationTitle(model.source?.url.lastPathComponent ?? "ClipForge")
+        .fileImports(for: model)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             Task { @MainActor in
                 var urls: [URL] = []
@@ -78,7 +79,7 @@ private struct EmptyStateView: View {
                 .font(.title2.weight(.semibold))
             Text("iPhone, GoPro, DJI and Android footage (MOV, MP4, HEVC, H.264)")
                 .foregroundStyle(.secondary)
-            Button("Open Video…") { model.openVideoPanel() }
+            Button("Open Video…") { model.requestImport(.video) }
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
             if isLoading { ProgressView().controlSize(.small) }
@@ -101,13 +102,14 @@ private struct PreviewArea: View {
     var body: some View {
         ZStack {
             Color.black
-            PlayerLayerView(player: model.player)
+            PlayerSurface(player: model.player)
             if let image = model.scrubImage {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
             }
+            LimitedPreviewBadge()
             if let progress = model.exportProgress {
                 ExportOverlay(progress: progress)
             }
@@ -130,24 +132,6 @@ private struct ExportOverlay: View {
         }
         .padding(24)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-    }
-}
-
-/// AVPlayerView without the system controls; the app provides its own transport and timeline.
-struct PlayerLayerView: NSViewRepresentable {
-    let player: AVPlayer
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.controlsStyle = .none
-        view.videoGravity = .resizeAspect
-        view.allowsVideoFrameAnalysis = false
-        view.player = player
-        return view
-    }
-
-    func updateNSView(_ view: AVPlayerView, context: Context) {
-        if view.player !== player { view.player = player }
     }
 }
 

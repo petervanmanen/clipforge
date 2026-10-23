@@ -21,13 +21,15 @@ final class PipelineTests: XCTestCase {
     }
 
     /// 6 s of 1280×720 noise texture with a slow pan plus random shake, optionally rotated like a portrait iPhone clip.
-    static func makeShakyVideo(at url: URL, seconds: Int = 6, rotated: Bool = false) throws {
+    static func makeShakyVideo(at url: URL, seconds: Int = 6, rotated: Bool = false,
+                               transform: CGAffineTransform? = nil) throws {
         let w = 1280, h = 720, fps = 30
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.hevc, AVVideoWidthKey: w, AVVideoHeightKey: h,
         ])
         if rotated { input.transform = CGAffineTransform(rotationAngle: .pi / 2) }
+        if let transform { input.transform = transform }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: w, kCVPixelBufferHeightKey as String: h,
@@ -43,14 +45,13 @@ final class PipelineTests: XCTestCase {
         writer.startSession(atSourceTime: .zero)
 
         let ctx = CIContext()
-        let texture = CIFilter(name: "CIRandomGenerator")!.outputImage!
-            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 3])
-            .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 4])
+        let texture = makeTexture(width: w + 400, height: h + 100)
         var rng = SeededRandom(seed: 42)
         for i in 0..<(seconds * fps) {
             while !input.isReadyForMoreMediaData { usleep(1000) }
-            let dx = Double(i) * 1.5 + rng.next(in: -18...18)
-            let dy = rng.next(in: -12...12)
+            // Content moves right by 1.5 px/frame (a pan) plus random shake.
+            let dx = -Double(i) * 1.5 + rng.next(in: -18...18) - 50
+            let dy = rng.next(in: -12...12) - 50
             let frame = texture.transformed(by: CGAffineTransform(translationX: dx, y: dy))
                 .cropped(to: CGRect(x: 0, y: 0, width: w, height: h))
             var buffer: CVPixelBuffer?
@@ -63,6 +64,23 @@ final class PipelineTests: XCTestCase {
         writer.finishWriting { done.signal() }
         done.wait()
         if writer.status != .completed { throw writer.error ?? CocoaError(.fileWriteUnknown) }
+    }
+
+    /// A non-repeating pattern of random discs. (CIRandomGenerator tiles every 512 px, which makes frame
+    /// registration ambiguous.)
+    static func makeTexture(width: Int, height: Int) -> CIImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        var rng = SeededRandom(seed: 7)
+        ctx.setFillColor(gray: 0.5, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        for _ in 0..<2500 {
+            let r = rng.next(in: 4...40)
+            let g = rng.next(in: 0.1...0.9)
+            ctx.setFillColor(CGColor(red: g, green: rng.next(in: 0.1...0.9), blue: g, alpha: 1))
+            ctx.fillEllipse(in: CGRect(x: rng.next(in: 0...Double(width)), y: rng.next(in: 0...Double(height)), width: r, height: r))
+        }
+        return CIImage(cgImage: ctx.makeImage()!)
     }
 
     static func makeTone(at url: URL, seconds: Double) throws {
@@ -103,6 +121,7 @@ final class PipelineTests: XCTestCase {
         let analysis = try await Stabilizer.analyze(source) { _ in }
         XCTAssertEqual(analysis.times.count, 180)
         let sourceJitter = jitter(analysis)
+        print("source pan \((analysis.x.last ?? 0) - (analysis.x.first ?? 0)) px, y range \(analysis.y.min() ?? 0)...\(analysis.y.max() ?? 0)")
         XCTAssertGreaterThan(sourceJitter, 10)
 
         // Edit: trim 0.5 s off the start and end, remove 2.0–3.0 s.
@@ -136,18 +155,44 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(out.displaySize, CGSize(width: 1280, height: 720))
         XCTAssertNotNil(out.audioTrack, "background music should be mixed in (looped)")
 
-        // The exported clip must be measurably steadier than the source.
-        let outAnalysis = try await Stabilizer.analyze(out) { _ in }
-        let outJitter = jitter(outAnalysis)
-        print("jitter source=\(sourceJitter) stabilized=\(outJitter)")
-        XCTAssertLessThan(outJitter, sourceJitter * 0.5)
-
         // The overlay panel is drawn bottom-left: the corner differs from the plain filtered frame.
         let generator = AVAssetImageGenerator(asset: out.asset)
         let (frame, _) = try await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600))
         let corner = averageBrightness(frame, rect: CGRect(x: 40, y: frame.height - 140, width: 120, height: 80))
         XCTAssertNotNil(corner)
         try writePNG(frame, to: dir.appendingPathComponent("frame.png"))
+    }
+
+    /// Stabilization must remove the shake but keep the camera's slow pan. Measured on an export without the
+    /// overlay, because the static overlay panel would dominate the motion estimate.
+    @MainActor
+    func testStabilizationRemovesShakeButKeepsPan() async throws {
+        let videoURL = dir.appendingPathComponent("shaky.mov")
+        try Self.makeShakyVideo(at: videoURL)
+        let source = try await SourceVideo.load(url: videoURL)
+        let analysis = try await Stabilizer.analyze(source) { _ in }
+        let sourcePan = (analysis.x.last ?? 0) - (analysis.x.first ?? 0)
+        XCTAssertEqual(sourcePan, -1.5 * Double(analysis.times.count - 1), accuracy: 15, "analysis must measure the pan")
+
+        let timeline = EditTimeline(sourceDuration: source.duration)
+        let state = RenderState()
+        var snapshot = RenderSnapshot()
+        snapshot.keptRanges = timeline.keptRanges
+        snapshot.sourceDuration = source.duration
+        snapshot.stabilization = StabilizationSettings(enabled: true, strength: 0.8, maxCrop: 0.12)
+        snapshot.stabilizationPath = Stabilizer.path(for: analysis, settings: snapshot.stabilization)
+        state.snapshot = snapshot
+        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, audio: AudioSettings(),
+                                                       renderer: FrameRenderer(state: state))
+        let outURL = dir.appendingPathComponent("stabilized.mp4")
+        try await VideoExporter.export(movie, to: outURL, preset: .h264Highest, container: .mp4) { _ in }
+
+        let outAnalysis = try await Stabilizer.analyze(try await SourceVideo.load(url: outURL)) { _ in }
+        let sourceJitter = jitter(analysis), outJitter = jitter(outAnalysis)
+        let outPan = (outAnalysis.x.last ?? 0) - (outAnalysis.x.first ?? 0)
+        print("jitter source=\(sourceJitter) stabilized=\(outJitter); pan source=\(sourcePan) stabilized=\(outPan)")
+        XCTAssertLessThan(outJitter, sourceJitter * 0.2)
+        XCTAssertEqual(outPan, sourcePan, accuracy: abs(sourcePan) * 0.25, "the slow pan must survive")
     }
 
     @MainActor
@@ -170,6 +215,59 @@ final class PipelineTests: XCTestCase {
         let out = try await SourceVideo.load(url: outURL)
         XCTAssertEqual(out.displaySize, CGSize(width: 720, height: 1280))
         XCTAssertNil(out.audioTrack)
+    }
+
+    /// The custom compositor must rotate frames exactly like AVFoundation does for every phone orientation.
+    func testCompositorOrientationMatchesAVFoundation() async throws {
+        let w: CGFloat = 1280, h: CGFloat = 720
+        let transforms: [(String, CGAffineTransform)] = [
+            ("0", .identity),
+            ("90", CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: h, ty: 0)),
+            ("180", CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: w, ty: h)),
+            ("270", CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: w)),
+        ]
+        for (name, transform) in transforms {
+            let url = dir.appendingPathComponent("orient-\(name).mov")
+            try Self.makeShakyVideo(at: url, seconds: 1, transform: transform)
+            let source = try await SourceVideo.load(url: url)
+            let at = CMTime(value: 10, timescale: 30)
+
+            let reference = AVAssetImageGenerator(asset: source.asset)
+            reference.appliesPreferredTrackTransform = true
+            reference.requestedTimeToleranceBefore = .zero
+            reference.requestedTimeToleranceAfter = .zero
+            let (expected, _) = try await reference.image(at: at)
+
+            let generator = AVAssetImageGenerator(asset: source.asset)
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            generator.videoComposition = EffectsComposition.make(
+                asset: source.asset, trackID: source.videoTrack.trackID, duration: CMTime(secondsValue: source.duration),
+                naturalSize: source.naturalSize, preferredTransform: source.preferredTransform,
+                frameDuration: source.frameDuration) { frame, _ in frame }
+            let (actual, _) = try await generator.image(at: at)
+
+            XCTAssertEqual(actual.width, expected.width, "rotation \(name)")
+            XCTAssertEqual(actual.height, expected.height, "rotation \(name)")
+            let diff = meanDifference(actual, expected)
+            XCTAssertLessThan(diff, 6, "rotation \(name): frames differ (mean diff \(diff))")
+        }
+    }
+
+    /// Mean absolute per-channel difference of two equally sized images, compared at 320 px.
+    private func meanDifference(_ a: CGImage, _ b: CGImage) -> Double {
+        let w = 320, h = Int(Double(320) * Double(a.height) / Double(a.width))
+        func pixels(_ image: CGImage) -> [UInt8] {
+            var data = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return data
+        }
+        let pa = pixels(a), pb = pixels(b)
+        var sum = 0
+        for i in 0..<pa.count where i % 4 != 3 { sum += abs(Int(pa[i]) - Int(pb[i])) }
+        return Double(sum) / Double(w * h * 3)
     }
 
     private func averageBrightness(_ image: CGImage, rect: CGRect) -> Double? {

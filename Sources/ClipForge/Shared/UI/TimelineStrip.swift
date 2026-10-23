@@ -144,8 +144,10 @@ private struct TrimHandle: View {
             .frame(width: 14, height: 56)
             .overlay(Image(systemName: systemImage).font(.system(size: 14, weight: .bold)).foregroundStyle(.white))
             .contentShape(Rectangle().inset(by: -6))
+            #if os(macOS)
             .onHover { inside in
                 if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
             }
+            #endif
     }
 }

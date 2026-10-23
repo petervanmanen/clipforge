@@ -29,21 +29,21 @@ enum InspectorTab: String, CaseIterable, Identifiable {
 }
 
 struct InspectorView: View {
-    @State private var tab: InspectorTab = .trim
+    @EnvironmentObject private var model: EditorModel
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
                 ForEach(InspectorTab.allCases) { t in
-                    Button { tab = t } label: {
+                    Button { model.inspectorTab = t } label: {
                         VStack(spacing: 3) {
                             Image(systemName: t.systemImage).font(.system(size: 15))
                             Text(t.title).font(.system(size: 10))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(tab == t ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                        .foregroundStyle(tab == t ? Color.accentColor : .secondary)
+                        .background(model.inspectorTab == t ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .foregroundStyle(model.inspectorTab == t ? Color.accentColor : .secondary)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -53,7 +53,7 @@ struct InspectorView: View {
             Divider()
             ScrollView {
                 Group {
-                    switch tab {
+                    switch model.inspectorTab {
                     case .trim: TrimPanel()
                     case .stabilize: StabilizePanel()
                     case .filters: FiltersPanel()
@@ -105,6 +105,14 @@ struct LabeledSlider: View {
 
 private func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
 
+func platformHint(mac: String, phone: String) -> String {
+    #if os(macOS)
+    mac
+    #else
+    phone
+    #endif
+}
+
 // MARK: - Trim
 
 private struct TrimPanel: View {
@@ -114,17 +122,19 @@ private struct TrimPanel: View {
         PanelSection(title: "Start & end") {
             row("Start", model.timeline.trimStart) { model.setTrimStartToPlayhead() }
             row("End", model.timeline.trimEnd) { model.setTrimEndToPlayhead() }
-            Text("Drag the blue handles on the timeline, or use [ and ] to set start/end at the playhead.")
+            Text(platformHint(
+                mac: "Drag the blue handles on the timeline, or use [ and ] to set start/end at the playhead.",
+                phone: "Drag the blue handles on the timeline, or set start/end at the playhead."))
                 .font(.caption).foregroundStyle(.secondary)
         }
 
         PanelSection(title: "Remove a part") {
             HStack {
-                Button("Mark In") { model.setMarkIn() }
-                Button("Mark Out") { model.setMarkOut() }
+                Button("Mark In") { model.setMarkIn() }.buttonStyle(.bordered)
+                Button("Mark Out") { model.setMarkOut() }.buttonStyle(.bordered)
                 Spacer()
                 if model.markIn != nil || model.markOut != nil {
-                    Button("Clear") { model.clearSelection() }.buttonStyle(.link)
+                    Button("Clear") { model.clearSelection() }.buttonStyle(.borderless)
                 }
             }
             HStack {
@@ -141,7 +151,9 @@ private struct TrimPanel: View {
             }
             .controlSize(.large)
             .disabled(!model.canRemoveSelection)
-            Text("Move the playhead, press I and O to mark a part in the middle, then remove it.")
+            Text(platformHint(
+                mac: "Move the playhead, press I and O to mark a part in the middle, then remove it.",
+                phone: "Move the playhead, mark the start (In) and end (Out) of a part in the middle, then remove it."))
                 .font(.caption).foregroundStyle(.secondary)
         }
 
@@ -330,15 +342,16 @@ private struct AudioPanel: View {
                 Toggle("Loop to fill the video", isOn: $model.audio.loopMusic)
                 LabeledSlider(title: "Fade in", value: $model.audio.fadeIn, range: 0...5) { String(format: "%.1fs", $0) }
                 LabeledSlider(title: "Fade out", value: $model.audio.fadeOut, range: 0...8) { String(format: "%.1fs", $0) }
-                Button("Replace…") { model.chooseMusicPanel() }
+                Button("Replace…") { model.requestImport(.music) }
             } else {
                 Button {
-                    model.chooseMusicPanel()
+                    model.requestImport(.music)
                 } label: {
                     Label("Add Music…", systemImage: "plus").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
-                Text("MP3, M4A/AAC, WAV or AIFF. You can also drop a file on the window.")
+                Text(platformHint(mac: "MP3, M4A/AAC, WAV or AIFF. You can also drop a file on the window.",
+                                  phone: "MP3, M4A/AAC, WAV or AIFF from Files."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -371,7 +384,7 @@ private struct ExportPanel: View {
                 Button("Cancel Export") { model.cancelExport() }
             } else {
                 Button {
-                    model.exportPanel()
+                    model.requestExport()
                 } label: {
                     Label("Export Video…", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                 }
@@ -379,15 +392,43 @@ private struct ExportPanel: View {
                 .buttonStyle(.borderedProminent)
             }
             if let url = model.lastExportURL {
-                HStack {
-                    Label(url.lastPathComponent, systemImage: "checkmark.circle.fill").foregroundStyle(.green).lineLimit(1)
-                    Spacer()
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                        .controlSize(.small)
-                }
+                ExportResultView(url: url)
             }
             Text("Trim, stabilization, filters, the data overlay and the music are all rendered into the exported file.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// What to do with a finished export: reveal it on macOS, save or share it on iOS.
+private struct ExportResultView: View {
+    @EnvironmentObject private var model: EditorModel
+    let url: URL
+
+    var body: some View {
+        #if os(macOS)
+        HStack {
+            Label(url.lastPathComponent, systemImage: "checkmark.circle.fill").foregroundStyle(.green).lineLimit(1)
+            Spacer()
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                .controlSize(.small)
+        }
+        #else
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Export finished", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            HStack {
+                Button {
+                    model.saveExportToPhotos()
+                } label: {
+                    Label(model.savedToPhotos ? "Saved to Photos" : "Save to Photos",
+                          systemImage: model.savedToPhotos ? "checkmark" : "photo.on.rectangle")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.savedToPhotos)
+                ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+                    .buttonStyle(.bordered)
+            }
+        }
+        #endif
     }
 }

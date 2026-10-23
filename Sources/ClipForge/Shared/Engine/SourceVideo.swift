@@ -21,6 +21,8 @@ struct SourceVideo: @unchecked Sendable {
     let audioTrack: AVAssetTrack?
     let duration: Double
     let preferredTransform: CGAffineTransform
+    /// Encoded frame size (before rotation).
+    let naturalSize: CGSize
     /// Size as displayed (rotation applied).
     let displaySize: CGSize
     let frameRate: Double
@@ -78,6 +80,7 @@ struct SourceVideo: @unchecked Sendable {
             audioTrack: audio,
             duration: duration,
             preferredTransform: transform,
+            naturalSize: naturalSize,
             displaySize: CGSize(width: abs(rect.width).rounded(), height: abs(rect.height).rounded()),
             frameRate: rate,
             frameDuration: frameDuration,

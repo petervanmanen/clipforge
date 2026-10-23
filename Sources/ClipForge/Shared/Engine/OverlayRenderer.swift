@@ -1,6 +1,12 @@
-import AppKit
 import CoreImage
 import CoreText
+#if canImport(AppKit)
+import AppKit
+private typealias PlatformFont = NSFont
+#else
+import UIKit
+private typealias PlatformFont = UIFont
+#endif
 
 /// Draws the activity-data panel (metric tiles + optional graph) for one frame.
 final class OverlayRenderer: @unchecked Sendable {
@@ -113,12 +119,14 @@ final class OverlayRenderer: @unchecked Sendable {
 
     // MARK: - Drawing
 
-    private func font(_ size: CGFloat, _ weight: NSFont.Weight) -> CTFont {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
-        if let rounded = font.fontDescriptor.withDesign(.rounded), let f = NSFont(descriptor: rounded, size: size) {
-            return f as CTFont
-        }
-        return font as CTFont
+    private func font(_ size: CGFloat, _ weight: PlatformFont.Weight) -> CTFont {
+        let font = PlatformFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+        #if canImport(AppKit)
+        let rounded = font.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) }
+        #else
+        let rounded = font.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: size) }
+        #endif
+        return (rounded ?? font) as CTFont
     }
 
     private func line(_ text: String, _ font: CTFont, _ color: CGColor) -> CTLine {

@@ -7,7 +7,7 @@ struct ClipForgeApp: App {
 
     var body: some Scene {
         Window("ClipForge", id: "main") {
-            ContentView()
+            MacContentView()
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 640)
                 .onAppear { appDelegate.openHandler = { model.handleDrop($0) } }
@@ -15,15 +15,15 @@ struct ClipForgeApp: App {
         .defaultSize(width: 1360, height: 860)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Open Video…") { model.openVideoPanel() }
+                Button("Open Video…") { model.requestImport(.video) }
                     .keyboardShortcut("o")
-                Button("Load FIT File…") { model.loadFITPanel() }
+                Button("Load FIT File…") { model.requestImport(.fit) }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(model.source == nil)
-                Button("Add Background Music…") { model.chooseMusicPanel() }
+                Button("Add Background Music…") { model.requestImport(.music) }
                     .disabled(model.source == nil)
                 Divider()
-                Button("Export…") { model.exportPanel() }
+                Button("Export…") { model.requestExport() }
                     .keyboardShortcut("e")
                     .disabled(model.source == nil || model.exportProgress != nil)
             }

@@ -4,46 +4,75 @@ Guidance for Claude (or anyone) working on ClipForge. Requirements and their sta
 
 ## What this is
 
-ClipForge is a native macOS 15+ video editor for action and dive footage. It trims and cuts, overlays FIT watch data, stabilizes, applies filters and adds background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies. It is a Swift package (`Package.swift`) with one executable target and one test target, and no Xcode project.
+ClipForge is a video editor for action and dive footage, with a **macOS app** (macOS 15+) and an **iPhone app** (iOS 18+). Both trim and cut, overlay FIT watch data, stabilize, apply filters and add background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies.
+
+The engine and the editing panels are shared source code that both apps compile:
+- **macOS:** a Swift package (`Package.swift`) with one executable target and one test target. Its target path, `Sources/ClipForge`, contains both `Shared/` and `Mac/`.
+- **iOS:** an Xcode project, `iOS/ClipForge.xcodeproj`, written by hand. It uses Xcode's folder-synced groups for `iOS/ClipForge/` and `../Sources/ClipForge/Shared/`, so new files in those folders are picked up automatically and the project file rarely needs editing.
 
 ## Commands
 
 ```bash
-swift build                    # debug build
-swift test                     # 7 tests, ~3 s; includes a real end-to-end export
-KEEP_TEST_OUTPUT=1 swift test  # keep the generated clips and frame.png (path printed in the log)
-./scripts/build_app.sh         # release universal build → build/ClipForge.app (ad-hoc signed)
-open build/ClipForge.app
-swift scripts/make_icon.swift  # regenerate Resources/AppIcon.icns + AppIcon.png
+swift build                    # macOS debug build
+swift test                     # 9 tests, ~6 s; includes real end-to-end exports
+KEEP_TEST_OUTPUT=1 swift test  # keep generated clips and frames (path printed in the log)
+./scripts/build_app.sh         # release universal macOS build → build/ClipForge.app (ad-hoc signed)
+swift scripts/make_icon.swift  # regenerate Resources/AppIcon.icns, AppIcon.png and the iOS app-icon PNG
+
+# iPhone app (simulator)
+xcodebuild -project iOS/ClipForge.xcodeproj -scheme ClipForge \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath build/ios-dd build
+xcrun simctl install booted build/ios-dd/Build/Products/Debug-iphonesimulator/ClipForge.app
+xcrun simctl launch booted app.clipforge.ClipForge
 ```
 
-`build_app.sh` reads the `VERSION` and `BUILD_NUMBER` environment variables for Info.plist; CI sets them. The app can be opened with files: `open -a build/ClipForge.app clip.mov activity.fit music.m4a` loads all three. This is the easiest way to try a change by hand.
-
-To see the running app, `screencapture -l <windowID>` works. Get the window ID from `CGWindowListCopyWindowInfo` with a small Swift script. Don't use `osascript` with System Events: it hangs waiting for an Automation permission.
+- `build_app.sh` reads `VERSION` and `BUILD_NUMBER` for Info.plist; CI sets them.
+- The Mac app can be opened with files: `open -a build/ClipForge.app clip.mov activity.fit music.m4a`.
+- On iOS:
+  - Add a test clip to the simulator's Photos with `xcrun simctl addmedia booted clip.mov`.
+  - Send a FIT file to the running app with `xcrun simctl openurl booted file:///path/run.fit`. This goes through "Open in" → `onOpenURL` → `importFile`.
+- Installing on a real iPhone needs your own team: open the project in Xcode and set Signing & Capabilities → Team. Change the bundle ID `app.clipforge.ClipForge` if it's taken.
+- To see the Mac app, `screencapture -l <windowID>` works. Get the ID from `CGWindowListCopyWindowInfo` with a small Swift script. Don't use `osascript` with System Events: it hangs on an Automation permission prompt.
+- Simulator driving tips:
+  - Screenshots often lag one action behind, so take two.
+  - A tap doesn't flip a SwiftUI `Toggle`; a short horizontal swipe across it does.
+  - `simctl launch` can leave the app in the background; tap its home-screen icon.
 
 ## Layout
 
 ```
 Sources/ClipForge/
-  ClipForgeApp.swift        App, menu commands, AppDelegate (Finder "Open With" → model.handleDrop)
-  FIT/FITParser.swift       Low-level FIT decoder → [FITMessage] (numeric fields only)
-  FIT/FITActivity.swift     OverlayMetric enum, FITSeries (interpolation/smoothing), FITActivity.decode
-  Models/EditTimeline.swift Trim/cut model, source↔output time mapping, formatTimecode
-  Models/Settings.swift     FilterKind (CI filter chains), Filter/Stabilization/Overlay/Audio settings, export presets
-  Models/EditorModel.swift  @MainActor ObservableObject: the single view model (player, rebuilds, scrub, analysis, export)
-  Engine/SourceVideo.swift  Loads an asset: tracks, orientation, fps, codec, creation date, supported UTTypes
-  Engine/CompositionBuilder.swift  AVMutableComposition + CI video composition + audio mix; VideoExporter
-  Engine/FrameRenderer.swift       RenderSnapshot / RenderState (lock-protected) / per-frame pipeline
-  Engine/Stabilizer.swift          Motion analysis (Vision), path smoothing, per-frame apply
-  Engine/OverlayRenderer.swift     Draws the metric panel + graph with CoreGraphics/CoreText, cached
-  UI/ContentView.swift      Main window, preview (AVPlayerView, no controls), transport bar, drop handling
-  UI/TimelineStrip.swift    Filmstrip with trim handles, cuts, In/Out selection, playhead
-  UI/InspectorView.swift    Tabbed inspector: Trim, Stabilize, Filters, Audio, Export panels
-  UI/OverlayPanel.swift     The "Data" (FIT overlay) inspector panel
-Tests/ClipForgeTests/       FITTests (+ FITWriter that builds FIT files in memory), TimelineTests, PipelineTests
-scripts/                    build_app.sh, make_icon.swift
-Resources/                  AppIcon.icns / AppIcon.png (generated; committed)
-.github/workflows/build.yml CI
+  Shared/                       Compiled into BOTH apps (keep it free of AppKit/UIKit except behind #if)
+    FIT/FITParser.swift         Low-level FIT decoder → [FITMessage] (numeric fields only)
+    FIT/FITActivity.swift       OverlayMetric, FITSeries (interpolation/smoothing), FITActivity.decode
+    Models/EditTimeline.swift   Trim/cut model, source↔output time mapping, formatTimecode
+    Models/Settings.swift       FilterKind (CI filter chains), Filter/Stabilization/Overlay/Audio settings, export presets
+    Models/EditorModel.swift    @MainActor ObservableObject: the single view model (player, rebuilds, scrub,
+                                analysis, import/export requests, preview fallback). ImportKind lives here too.
+    Models/PhotoLibrary.swift   iOS only: save the export to Photos
+    Engine/SourceVideo.swift    Loads an asset: tracks, orientation, natural/display size, fps, codec, creation date
+    Engine/EffectsCompositor.swift  Our AVVideoCompositing: orientation + per-frame CI render (used everywhere)
+    Engine/CompositionBuilder.swift AVMutableComposition + effects composition + audio mix; VideoExporter
+    Engine/FrameRenderer.swift  RenderSnapshot / RenderState (lock-protected) / per-frame pipeline
+    Engine/Stabilizer.swift     Motion analysis (Vision), path smoothing, per-frame apply
+    Engine/OverlayRenderer.swift  Draws the metric panel + graph with CoreGraphics/CoreText, cached
+    UI/PlatformViews.swift      PlayerSurface (AVPlayerView / AVPlayerLayer), FileImportHandler, LimitedPreviewBadge
+    UI/TimelineStrip.swift      Filmstrip with trim handles, cuts, In/Out selection, playhead
+    UI/InspectorView.swift      Tabbed panels: Trim, Stabilize, Filters, Audio, Export (+ ExportResultView)
+    UI/OverlayPanel.swift       The "Data" (FIT overlay) panel
+  Mac/
+    ClipForgeApp.swift          App, menu commands, AppDelegate (Finder "Open With" → model.handleDrop)
+    MacContentView.swift        Window: preview, transport bar with keyboard shortcuts, inspector, drag & drop
+iOS/
+  ClipForge.xcodeproj           Hand-written project (objectVersion 77, synced folders, no shared scheme committed)
+  Info.plist                    Document types + imported UTI app.clipforge.fit (merged with generated keys)
+  ClipForge/ClipForgePhoneApp.swift  App entry, AVAudioSession .playback, onOpenURL
+  ClipForge/PhoneEditorView.swift    Phone layout, PhotosPicker import (PickedMovie), compact transport
+  ClipForge/Assets.xcassets     AppIcon (generated, opaque 1024 px), AccentColor
+Tests/ClipForgeTests/           FITTests (+ FITWriter), TimelineTests, PipelineTests (synthetic video/audio/FIT)
+scripts/                        build_app.sh, make_icon.swift
+Resources/                      AppIcon.icns / AppIcon.png (generated; committed)
+.github/workflows/build.yml     CI: macOS tests + app zip; iOS simulator compile check
 ```
 
 ## How it works
@@ -52,69 +81,81 @@ Resources/                  AppIcon.icns / AppIcon.png (generated; committed)
 - **Source time** is seconds in the original file. Trim points, cuts, stabilization analysis, the FIT sync and the timeline view all use source time.
 - **Output time** is seconds in the edited result, which is what the AVPlayer and the export use.
 - `EditTimeline.keptRanges` (trim minus cuts) defines the mapping in both directions. `outputTime(forSource:)` snaps a time inside a removed part to the next kept frame.
-- The video compositor receives output time (`request.compositionTime`) and converts it to source time with `EditTimeline.sourceTime(forOutput:kept:)` using the snapshot's `keptRanges`.
 
 ### The edit pipeline
-1. `CompositionBuilder.build` creates an `AVMutableComposition`. It inserts each kept range of the first video track and the chosen audio track, then the music track (looped as needed). It also builds an `AVMutableAudioMix` for volumes and fades.
-2. The video composition is `AVMutableVideoComposition.videoComposition(with:applyingCIFiltersWithHandler:)`. Its handler calls `FrameRenderer.render`, which applies stabilization, then the filter (blended by intensity with `CIDissolveTransition`), then colour adjustments and vignette, then the overlay. The result is cropped to the frame.
-3. The player and the export use the same `EditedMovie`, so the preview matches the exported file. The export builds a fresh `EditedMovie` from the same `FrameRenderer`.
+1. `CompositionBuilder.build` creates an `AVMutableComposition`. It inserts each kept range of the first video track and the chosen audio track, then the music (looped as needed). It also builds an `AVMutableAudioMix` for volumes and fades.
+2. The video composition comes from `EffectsComposition.make`: our own `AVVideoCompositing` class (`EffectsCompositor`) plus a single `EffectsInstruction` that carries the render closure. For each frame the compositor:
+   - takes the source pixel buffer (BGRA) and rotates it to display orientation with `orientationTransform`;
+   - calls the closure, which is `FrameRenderer.render`: stabilization, then the filter (blended by intensity), then adjustments and vignette, then the overlay;
+   - renders the result into the output buffer.
+3. The same `EffectsComposition.make` is used for player, export, scrub previews (an `AVAssetImageGenerator` on the raw source) and stabilization analysis, so every path sees identically oriented frames.
+4. **Colour is passed through, not managed.** The `CIContext` has `workingColorSpace: NSNull()`, input images are created with `.colorSpace: NSNull()`, rendering uses `colorSpace: nil`, and the source buffer's colour tags are copied to the output. An unfiltered frame is therefore bit-for-bit what the decoder gave. HDR clips come out tagged as HDR but rendered through an 8-bit BGRA buffer; true HDR preservation is still open.
 
 ### Settings reach the renderer without a rebuild
-- `RenderState` holds an immutable `RenderSnapshot` behind an `NSLock`. The compositor reads it on its own threads for every frame.
+- `RenderState` holds an immutable `RenderSnapshot` behind a lock, and the compositor reads it on its own queue.
 - `EditorModel.pushSnapshot()` writes a new snapshot whenever filter, overlay, stabilization or FIT settings change, then calls `refreshFrame()`.
-- Only changes to the timeline or audio rebuild the composition (`scheduleRebuild`, debounced by 120 ms). After a rebuild, playback continues at the same source time.
-- `refreshFrame()` redraws the paused frame by assigning `item.videoComposition = vc.mutableCopy()`, a known trick for forcing AVPlayer to re-render. ⚠️ Nobody has confirmed by hand that every effect change shows up immediately while paused. Check this first if a paused preview looks stale.
+- `refreshFrame()` redraws the paused frame by assigning `item.videoComposition = vc.mutableCopy()`. ⚠️ This is still not confirmed by hand on a Mac or an iPhone. Check it first if a paused preview looks stale.
+- Only changes to the timeline or audio rebuild the composition (debounced by 120 ms).
+
+### Preview fallback (`previewIsLimited`)
+The iOS 27 Simulator cannot play any `AVPlayerItem` that has a video composition. It fails with -12784, even with a plain `AVMutableVideoComposition(propertiesOf:)`, while export and image generation work. `EditorModel.watchForPlaybackFailure` detects the failed item and swaps in the plain edit without effects. It sets `previewIsLimited`, which:
+- shows each paused or scrubbed frame with all effects, rendered through the scrub generator (`showStillFrame`);
+- shows "Effects show when paused" during playback (`LimitedPreviewBadge`).
+
+Export is unaffected. On a real device and on macOS the effects composition is expected to play normally, and the fallback never triggers. ⚠️ Live effects playback has not been verified on a physical iPhone.
 
 ### Scrubbing
-While dragging on the timeline or a trim handle, the preview shows `scrubImage` from an `AVAssetImageGenerator` on the *raw source asset*. That generator has its own CI video composition (`previewComposition`), which calls `FrameRenderer.render(_:sourceTime:)`, so effects show while scrubbing, even inside removed parts. When the drag ends, the player seeks and `scrubImage` is cleared. Trim-handle drags keep a `pendingTimeline` and only commit it, triggering a rebuild, when the drag ends.
+While dragging on the timeline or a trim handle, the preview shows `scrubImage` from an `AVAssetImageGenerator` on the raw source, using `previewComposition` (`FrameRenderer.render(_:sourceTime:)`). Effects therefore show while scrubbing, even inside removed parts. Trim-handle drags keep a `pendingTimeline` and commit it when the drag ends.
+
+### Import and export per platform
+- `EditorModel.requestImport(kind)` sets `importRequest`, and `FileImportHandler` (`.fileImports(for:)`) shows SwiftUI's `fileImporter` on both platforms.
+- `importFile(_:as:)` copies the file on iOS, because picked URLs are security-scoped and only readable briefly. The copy goes to `tmp/Imported/<uuid>/<original name>`, and the original name is kept because it identifies GoPro and DJI clips.
+- iOS also imports from Photos via `PhotosPicker` with `preferredItemEncoding: .current`, so HEVC is not transcoded and the creation date survives. `PickedMovie` is a `Transferable` that copies the file.
+- `requestExport()`: on macOS this is an `NSSavePanel`; on iOS it renders into `tmp/Exports/`, after which `ExportResultView` offers Save to Photos (add-only permission) and a Share sheet.
 
 ### Stabilization
-- **Analysis** (`Stabilizer.analyze`) runs off the main actor. An `AVAssetReaderVideoCompositionOutput` with a CI composition delivers frames that are already rotated and downscaled to a 640 px long side; `renderSize` is set on the mutable composition. For each frame pair, `VNTranslationalImageRegistrationRequest` runs with the previous frame as reference and the current frame as target. The cumulative trajectory is stored in full-resolution display pixels. Jumps larger than 25% of the frame width count as scene cuts and are ignored.
-- **Path** (`Stabilizer.path`) smooths the trajectory with two box-filter passes (radius = strength × fps × 2 frames). Four passes then clamp the correction to the crop margin and re-smooth it, so the correction never exceeds `frameSize × maxCrop / 2`. The path is cached in `EditorModel` and recomputed only when strength or maxCrop change.
-- **Apply** shifts the frame by the correction, zooms by `1/(1-maxCrop)` about the centre, and uses `clampedToExtent` and `cropped(to:)`.
+- **Analysis** reads frames through the effects compositor at 640 px on the long side, using Lanczos downscaling because plain scaling aliases and reads as false motion. Vision's `VNTranslationalImageRegistrationRequest` runs with the previous frame as reference and the current frame as target, and the cumulative trajectory is stored in display pixels. Jumps larger than 25% of the width count as scene cuts and are ignored.
+- **Path:** two box-filter passes with radius = strength × fps × 2 frames. The ends are extended by point reflection, so a steady pan stays a straight line instead of flattening at the clip ends. Then four passes clamp the correction to the crop margin and re-smooth it.
+- **Apply** shifts the frame by the correction, zooms by `1/(1-maxCrop)` about the centre, and uses `clampedToExtent` and `cropped`.
 
-### Overlay
-- The FIT time for a frame is `snapshot.videoStartDate + sourceTime + overlay.timeOffset`.
-- `videoStartDate` is the asset's creation date. When "camera clock is local time" is on, the FIT file's UTC offset is subtracted (or the Mac's time zone if the file has none). If the video has no creation date, the FIT start is used.
-- The panel is drawn into a small `CGContext` with CoreText; this is thread-safe, so don't use AppKit drawing here. It is turned into a `CIImage` and positioned in Core Image coordinates (y points up).
-- Rendered panels are cached (up to 120) by a key made of the displayed strings, the graph marker's pixel position and the style settings, so most frames reuse a cached image.
+### Overlay and FIT
+- The FIT time for a frame is `videoStartDate + sourceTime + overlay.timeOffset`.
+- With "camera clock is local time" on (GoPro and DJI), the FIT file's UTC offset is subtracted from the video start.
+- The panel is drawn with CoreText, which is thread-safe, and cached by its displayed values.
+- Record fields used: 253 timestamp, 3 heart rate, 6/73 speed (÷1000), 5 distance (÷100), 92 depth (÷1000), 13 temperature, 2/78 altitude (÷5 − 500).
+- Sport comes from Session (18) or Sport (12); sport 53 is diving. The UTC offset is local_timestamp minus timestamp from the Activity message (34).
+- The FIT epoch is 631065600 seconds after the Unix epoch.
 
-### FIT decoding
-- Record message (global 20) fields used: 253 timestamp, 3 heart rate, 6/73 speed (÷1000 m/s; enhanced preferred), 5 distance (÷100 m), 92 depth (÷1000 m), 13 temperature (°C), 2/78 altitude (÷5 − 500 m).
-- Session (18) and Sport (12) messages give the sport: field 5/0 = sport, 6/1 = sub-sport, and sport 53 is diving. The Activity message (34) gives `local_timestamp` (field 5) minus timestamp, which is the UTC offset rounded to 15 minutes.
-- The FIT epoch is 1989-12-31 UTC, which is `FITParser.fitEpochOffset` = 631065600 seconds.
-- Speed and altitude are smoothed over 5 s. The pace series is the smoothed speed series, converted when formatted.
-- Values are interpolated linearly. Across gaps longer than 15 s the value is shown as `--`.
-
-## Facts that were verified by experiment (don't re-derive)
-- **Vision sign:** with handler = image A and target = image B, where B is A shifted by (+20, +10) in Core Image coordinates, `alignmentTransform` is `tx = −20, ty = −10`. So content motion = −alignmentTransform. Pass `CIImage`s, not `CVPixelBuffer`s, so the coordinates match the render handler's (y up).
-- **Orientation:** with `applyingCIFiltersWithHandler`, `request.sourceImage` is already rotated by the track's `preferredTransform`, and `renderSize` is the display size. The composition track must copy `preferredTransform` from the source; the builder does this.
-- **Homography:** `VNHomographicImageRegistrationRequest` returned garbage translation on synthetic images, which is why stabilization is translation-only.
-- **Warm and cool:** `CITemperatureAndTint` with neutral 6500 and target **below** 6500 makes the image warmer. Warm uses 4700, cool uses 9000.
-- **Stabilization works:** in the end-to-end test, mean frame-to-frame acceleration fell from about 85 to about 9.5 (strength 0.8, crop 12%).
+## Facts verified by experiment (don't re-derive)
+- **Vision sign:** with handler = A and target = B, where B is A shifted by (+20, +10) in Core Image coordinates, `alignmentTransform` is `(−20, −10)`. So content motion = −alignmentTransform.
+- **Orientation:** `EffectsComposition.orientationTransform` matches `AVAssetImageGenerator.appliesPreferredTrackTransform` for 0°, 90°, 180° and 270° (`testCompositorOrientationMatchesAVFoundation`). Brightness also matches, because colour is passed through.
+- **Colour:** rendering with `itur_709` or `sRGB` output spaces made frames 11–17 levels brighter than AVFoundation's. Pass-through fixed it.
+- **Simulator playback:** see "Preview fallback" above. `applyingCIFiltersWithHandler`, a custom compositor and a plain property-based composition all fail in Simulator playback; export works.
+- **Test content matters:**
+  - `CIRandomGenerator` tiles every 512 px, which makes frame registration ambiguous. Tests use random discs (`makeTexture`).
+  - A static overlay dominates Vision's motion estimate, so stabilization is measured on exports without the overlay (`testStabilizationRemovesShakeButKeepsPan`).
+- **Stabilization result:** shake 33 → 0.9 (mean frame-to-frame acceleration), pan −268 → −254 px (kept).
+- **Warm and cool:** `CITemperatureAndTint` with target below 6500 warms the image. Warm uses 4700, cool uses 9000.
 
 ## Gotchas
-- **Toolchain gap:** the local Mac has Xcode 27 (Swift 6.4); the CI runner `macos-15` uses Xcode 26.3 via `setup-xcode latest-stable`. Code that builds locally can fail on CI. Two cases so far:
-  - A call to a method `width(_:)` inside a function that later declares `let width` failed on the older compiler. Write `self.width(...)`.
-  - Long `zip/map/reduce` chains timed out the older type checker. Use plain loops or add type annotations.
+- **Toolchain gap:** local Xcode 27 (Swift 6.4) versus the CI runner's Xcode 26.3. Code that builds locally can fail on CI. Known traps:
+  - A method `width(_:)` called in a function that later declares `let width`: write `self.width(...)`.
+  - Long `zip/map/reduce` chains time out the older type checker: use loops.
 
-  After pushing, check the CI run with `gh run list` / `gh run watch`.
-- **Swift version:** `Package.swift` uses tools version 6.0 (needed for `.macOS(.v15)`) with `swiftLanguageModes: [.v5]`. Strict Swift 6 concurrency is deliberately off. Thread safety relies on `@unchecked Sendable` classes with locks: `RenderState`, `FrameRenderer`, `OverlayRenderer`. Keep compositor code free of main-actor state.
-- **Keyboard shortcuts:** the transport bar uses shortcuts without modifiers (space, `,` `.` `[` `]` `I` `O` ⌫). These steal keystrokes from text fields. The only text field is the overlay offset, which takes digits. Don't add free-text fields without adding modifiers or scoping the shortcuts.
-- **Audio tracks:** iPhone spatial audio adds an `apac` track, which `SourceVideo.load` skips. Audio is often a few milliseconds shorter than video (GoPro, DJI), so only the overlap of each kept range is inserted.
-- **AVPlayerView:** `allowsVideoFrameAnalysis = false` hides the Live Text button.
-- **AppDelegate:** it sets `.regular` activation policy so `swift run` (no bundle) still gets a menu bar and focus.
-- **Frame rate:** variable-frame-rate phone video uses `minFrameDuration` for `frameDuration`. This is untested with real Android VFR files.
+  Check the CI run (`gh run list` / `gh run watch`) after pushing.
+- **Platform code:** `Shared/` must compile on both platforms. Wrap AppKit/UIKit with `#if os(macOS)` / `#if canImport(AppKit)`. Mac-only SwiftUI styles break the iOS build (`.buttonStyle(.link)`, `.menuStyle(.borderlessButton)`). User-facing hints that mention keys go through `platformHint(mac:phone:)`.
+- **Swift version:** tools version 6.0 with `swiftLanguageModes: [.v5]` (package) and `SWIFT_VERSION = 5.0` (iOS project). Thread safety relies on `@unchecked Sendable` classes with locks. Keep compositor code free of main-actor state.
+- **Mac shortcuts:** the transport bar uses keys without modifiers, which steal keystrokes from text fields. Don't add free-text fields there.
+- **Audio tracks:** iPhone spatial audio adds an `apac` track, which is skipped. Audio is often a few milliseconds shorter than video, so only the overlap of each kept range is inserted.
+- **iOS icon:** it must be opaque. `make_icon.swift` writes it with `noneSkipLast`.
 
 ## Conventions
-- Match the existing style: small value-type settings structs, one `EditorModel`, panels as private SwiftUI structs, comments only where something is non-obvious.
-- Keep the engine (`FIT/`, `Engine/`, `Models/EditTimeline.swift`, `Models/Settings.swift`) free of SwiftUI so it can be tested headless. The tests use `@testable import ClipForge`.
-- Add a test for engine changes. `PipelineTests` shows how to generate synthetic video (`makeShakyVideo`), audio (`makeTone`) and FIT data (`FITWriter` in `FITTests.swift`).
+- Match the existing style: value-type settings, one `EditorModel`, panels as private SwiftUI structs, comments only where something is non-obvious.
+- Keep the engine free of SwiftUI so it can be tested headless (`@testable import ClipForge`). Add a test for engine changes. `PipelineTests` shows how to generate synthetic video, audio and FIT data.
 - Commit messages end with a `Co-Authored-By:` line. The repository is `git@github.com:petervanmanen/clipforge.git` on branch `main`, and CI runs on every push.
 
 ## Known limitations / next steps
 See the ⬜ and 🟡 items in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). The most important:
-- Verify with real iPhone, GoPro, DJI and Android clips and real Suunto/Garmin FIT files (dives especially).
-- Preserve HDR on export.
-- Notarize the app (needs a Developer ID).
-- Add rotation stabilization.
+- Test on a real iPhone, including live effects playback, Save to Photos, and large 4K HEVC clips (memory and time).
+- Try real iPhone, GoPro, DJI and Android clips, and real Suunto/Garmin FIT files.
+- Preserve HDR. Notarize the Mac app. Add rotation stabilization.

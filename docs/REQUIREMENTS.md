@@ -1,6 +1,6 @@
 # ClipForge requirements
 
-ClipForge is a native macOS video editor for action and dive footage. This file lists what the owner asked for and how each item is met. Status: ✅ done and tested · 🟡 done, not fully verified · ⬜ not done.
+ClipForge is a video editor for action and dive footage, for macOS and iPhone. This file lists what the owner asked for and how each item is met. Status: ✅ done and tested · 🟡 done, not fully verified · ⬜ not done.
 
 ## Original brief
 
@@ -18,6 +18,8 @@ Later requests:
 7. An app icon.
 8. A GitHub Actions workflow that builds the app.
 9. Project documentation detailed enough for another Claude to continue the work (this file and `CLAUDE.md`).
+10. An open-source license (MIT).
+11. An iPhone version.
 
 ## Requirements in detail
 
@@ -41,7 +43,8 @@ Later requests:
 ### R3 Stabilization ✅
 - Two passes. First, measure camera translation between frames with `VNTranslationalImageRegistrationRequest` on downscaled (640 px), correctly oriented frames. Then, at render time, shift each frame toward a smoothed path and zoom in to hide the edges.
 - Configurable: Smoothness (averaging window up to about ±2 s) and Max crop (2–25%). The correction is limited so edges never show.
-- Covered by: `TimelineTests.testStabilizationPathStaysInsideCrop` and `PipelineTests` (measured shake of the exported video went from 85 to 9.5).
+- The ends of the camera path are extended by point reflection, so a steady pan is kept rather than flattened.
+- Covered by: `TimelineTests.testStabilizationPathStaysInsideCrop` and `PipelineTests.testStabilizationRemovesShakeButKeepsPan` (shake 33 → 0.9; pan −268 → −254 px).
 - ⬜ Rotation and rolling shutter are not corrected; it handles translation only.
 
 ### R4 Filters ✅
@@ -53,7 +56,7 @@ Later requests:
 - Opens anything AVFoundation can decode: MOV and MP4 in HEVC (including 10-bit) or H.264, plus `.lrv`, `.m4v`, `.3gp` and `.mts`. Orientation (portrait iPhone video) is kept.
 - iPhone spatial-audio (APAC) tracks are skipped in favour of a normal audio track. GoPro timecode and GPMF metadata tracks are ignored.
 - Export: HEVC or H.264 at original size, 4K, 1080p or 720p, as MP4 or MOV.
-- Tested only with generated HEVC clips, both landscape and rotated portrait.
+- Tested only with generated HEVC clips. All four recording orientations (0°, 90°, 180°, 270°) match AVFoundation's own rotation (`testCompositorOrientationMatchesAVFoundation`).
 - 🟡 Not yet tried with real iPhone, GoPro, DJI or Android files.
 - ⬜ HDR (iPhone Dolby Vision or HLG) comes out as SDR.
 
@@ -66,11 +69,23 @@ Later requests:
 - Drawn in code by `scripts/make_icon.swift`, which outputs `Resources/AppIcon.icns` and `Resources/AppIcon.png`. The design is an ocean gradient, film strip, play button and red heart-rate trace.
 
 ### R8 CI build ✅
-- `.github/workflows/build.yml` runs on the `macos-15` runner. It runs `swift test`, builds the universal app and uploads `ClipForge.zip`. A `v*` tag also creates a GitHub release.
+- `.github/workflows/build.yml` runs on the `macos-15` runner. It runs `swift test`, builds the universal app and uploads `ClipForge.zip`. A `v*` tag also creates a GitHub release. A second job compiles the iPhone app for the simulator.
 - 🟡 The tag-release path has never been run.
 
+### R10 License ✅
+- MIT, in `LICENSE`.
+
+### R11 iPhone version ✅ / 🟡
+- Same engine and editing panels as the Mac app (shared source), in a phone layout: preview, transport, timeline, and the tabbed panels below. Portrait only, iPhone only (no iPad layout yet).
+- Import: from Photos (keeps HEVC and the recording date), from Files, or "Open in ClipForge" from other apps. A `.fit` from the Suunto app can be shared straight to ClipForge.
+- Export: rendered into a temporary file, then Save to Photos or Share.
+- Verified in the iOS 27 Simulator: Photos import, filters, the FIT overlay from "Open in", stabilization analysis, and export.
+- 🟡 The simulator can't play video with effects (an Apple simulator limitation). The app then plays the plain edit and shows effects on the paused frame. Live effects playback on a real iPhone is expected to work but hasn't been tested.
+- 🟡 Not yet run on a physical iPhone, which needs your own signing team in Xcode. Memory and time for long 4K clips are unknown.
+- ⬜ App Store distribution.
+
 ## Non-functional
-- macOS 15 or later, universal binary (arm64 and x86_64).
+- macOS 15 or later, universal binary (arm64 and x86_64). iOS 18 or later on iPhone.
 - Signed ad-hoc only. ⬜ Not notarized, so other people's Macs will block it in Gatekeeper.
 - No third-party dependencies.
 

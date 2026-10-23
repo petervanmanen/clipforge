@@ -39,13 +39,19 @@ enum Stabilizer {
         let scale = min(1, analysisDimension / max(size.width, size.height))
         let analysisSize = CGSize(width: (size.width * scale / 2).rounded() * 2, height: (size.height * scale / 2).rounded() * 2)
 
-        // A video composition gives correctly oriented, downscaled frames.
-        let composition = try await AVMutableVideoComposition.videoComposition(with: source.asset) { request in
-            let sx = analysisSize.width / request.sourceImage.extent.width
-            let sy = analysisSize.height / request.sourceImage.extent.height
-            request.finish(with: request.sourceImage.transformed(by: CGAffineTransform(scaleX: sx, y: sy)), context: nil)
+        // The same compositor as playback/export gives identically oriented, downscaled frames.
+        let composition = EffectsComposition.make(
+            asset: source.asset, trackID: source.videoTrack.trackID, duration: CMTime(secondsValue: source.duration),
+            naturalSize: source.naturalSize, preferredTransform: source.preferredTransform,
+            frameDuration: source.frameDuration, renderSize: analysisSize
+        ) { frame, _ in
+            // Lanczos downscaling avoids aliasing, which would otherwise show up as false motion.
+            let scaleY = analysisSize.height / frame.extent.height
+            let aspect = (analysisSize.width / frame.extent.width) / scaleY
+            return frame.applyingFilter("CILanczosScaleTransform", parameters: [
+                kCIInputScaleKey: scaleY, kCIInputAspectRatioKey: aspect,
+            ])
         }
-        composition.renderSize = analysisSize
 
         let reader = try AVAssetReader(asset: source.asset)
         let output = AVAssetReaderVideoCompositionOutput(
@@ -123,14 +129,21 @@ enum Stabilizer {
             maxCrop: settings.maxCrop)
     }
 
-    /// Centered moving average with edge clamping, O(n).
+    /// Centered moving average, O(n). The ends are extended by point reflection (x0 - (x[k] - x0)), so a steady
+    /// pan stays a straight line instead of flattening out at the start and end of the clip.
     static func boxSmooth(_ v: [Double], radius: Int) -> [Double] {
         guard v.count > 1, radius > 0 else { return v }
+        let n = v.count
+        let pad = min(radius, n - 1)
+        let head = (1...pad).reversed().map { 2 * v[0] - v[$0] }
+        let tail = (1...pad).map { 2 * v[n - 1] - v[n - 1 - $0] }
+        let padded = head + v + tail
         var prefix = [0.0]
-        prefix.reserveCapacity(v.count + 1)
-        for value in v { prefix.append(prefix.last! + value) }
-        return v.indices.map { i in
-            let lo = max(0, i - radius), hi = min(v.count - 1, i + radius)
+        prefix.reserveCapacity(padded.count + 1)
+        for value in padded { prefix.append(prefix.last! + value) }
+        return (0..<n).map { j in
+            let i = j + pad
+            let lo = max(0, i - radius), hi = min(padded.count - 1, i + radius)
             return (prefix[hi + 1] - prefix[lo]) / Double(hi - lo + 1)
         }
     }

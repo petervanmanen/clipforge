@@ -7,9 +7,10 @@ struct EditedMovie: @unchecked Sendable {
     let audioMix: AVAudioMix?
     let duration: Double
 
-    func makePlayerItem() -> AVPlayerItem {
+    /// - Parameter withEffects: false plays the plain edit (trim, cuts, audio) without the per-frame effects.
+    func makePlayerItem(withEffects: Bool = true) -> AVPlayerItem {
         let item = AVPlayerItem(asset: composition)
-        item.videoComposition = videoComposition
+        if withEffects { item.videoComposition = videoComposition }
         item.audioMix = audioMix
         return item
     }
@@ -104,12 +105,13 @@ enum CompositionBuilder {
             }
         }
 
-        let videoComposition = try await AVMutableVideoComposition.videoComposition(with: composition) { request in
-            let output = renderer.render(request.sourceImage, outputTime: request.compositionTime.seconds)
-            request.finish(with: output, context: nil)
+        let videoComposition = EffectsComposition.make(
+            asset: composition, trackID: videoTrack.trackID, duration: total,
+            naturalSize: source.naturalSize, preferredTransform: source.preferredTransform,
+            frameDuration: source.frameDuration
+        ) { frame, time in
+            renderer.render(frame, outputTime: time.seconds)
         }
-        videoComposition.frameDuration = source.frameDuration
-        videoComposition.renderSize = source.displaySize
 
         let mix: AVMutableAudioMix?
         if mixParameters.isEmpty {
@@ -123,13 +125,14 @@ enum CompositionBuilder {
     }
 
     /// A video composition over the raw source, used for scrub previews of any source frame (including cut parts).
-    static func previewComposition(source: SourceVideo, renderer: FrameRenderer) async throws -> AVVideoComposition {
-        let vc = try await AVMutableVideoComposition.videoComposition(with: source.asset) { request in
-            let output = renderer.render(request.sourceImage, sourceTime: request.compositionTime.seconds)
-            request.finish(with: output, context: nil)
+    static func previewComposition(source: SourceVideo, renderer: FrameRenderer) -> AVVideoComposition {
+        EffectsComposition.make(
+            asset: source.asset, trackID: source.videoTrack.trackID, duration: CMTime(secondsValue: source.duration),
+            naturalSize: source.naturalSize, preferredTransform: source.preferredTransform,
+            frameDuration: source.frameDuration
+        ) { frame, time in
+            renderer.render(frame, sourceTime: time.seconds)
         }
-        vc.frameDuration = source.frameDuration
-        return vc
     }
 }
 

@@ -1,11 +1,12 @@
-// Draws the ClipForge app icon and writes Resources/AppIcon.icns.
+// Draws the ClipForge app icon and writes Resources/AppIcon.icns (macOS) and the iOS app-icon PNG.
 // Usage: swift scripts/make_icon.swift   (run from the repository root)
 import AppKit
 import CoreGraphics
 
 let size: CGFloat = 1024
 
-func drawIcon() -> CGImage {
+/// `fullBleed`: iOS icons are square and opaque (the system rounds the corners), so the tile fills the canvas.
+func drawIcon(fullBleed: Bool = false) -> CGImage {
     let ctx = CGContext(data: nil, width: Int(size), height: Int(size), bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -13,7 +14,13 @@ func drawIcon() -> CGImage {
 
     // macOS icon grid: 824 pt rounded rect centred in 1024, with a soft drop shadow.
     let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
-    let tilePath = CGPath(roundedRect: tile, cornerWidth: 185, cornerHeight: 185, transform: nil)
+    if fullBleed {
+        // Draw the same 824 pt design scaled up to fill the canvas.
+        ctx.scaleBy(x: size / tile.width, y: size / tile.height)
+        ctx.translateBy(x: -tile.minX, y: -tile.minY)
+    }
+    let tilePath = fullBleed ? CGPath(rect: tile, transform: nil)
+        : CGPath(roundedRect: tile, cornerWidth: 185, cornerHeight: 185, transform: nil)
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: rgb(0, 0, 0, 0.35))
     ctx.addPath(tilePath)
@@ -88,10 +95,11 @@ func drawIcon() -> CGImage {
     return ctx.makeImage()!
 }
 
-func writePNG(_ image: CGImage, pixels: Int, to url: URL) {
+func writePNG(_ image: CGImage, pixels: Int, to url: URL, opaque: Bool = false) {
+    let alpha = opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast
     let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                        bitmapInfo: alpha.rawValue)!
     ctx.interpolationQuality = .high
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
@@ -111,6 +119,10 @@ for base in [16, 32, 128, 256, 512] {
     writePNG(icon, pixels: base * 2, to: iconset.appendingPathComponent("icon_\(base)x\(base)@2x.png"))
 }
 writePNG(icon, pixels: 1024, to: root.appendingPathComponent("Resources/AppIcon.png"))
+
+let iosIconSet = root.appendingPathComponent("iOS/ClipForge/Assets.xcassets/AppIcon.appiconset")
+try! fm.createDirectory(at: iosIconSet, withIntermediateDirectories: true)
+writePNG(drawIcon(fullBleed: true), pixels: 1024, to: iosIconSet.appendingPathComponent("AppIcon.png"), opaque: true)
 
 let iconutil = Process()
 iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OverlayPanel: View {
     @EnvironmentObject private var model: EditorModel
+    @Environment(\.self) private var environment
 
     var body: some View {
         if let activity = model.activity {
@@ -14,12 +15,14 @@ struct OverlayPanel: View {
                 Text("Load a .fit file from your watch to show heart rate, pace or – for dives – depth on the video.")
                     .foregroundStyle(.secondary)
                 Button {
-                    model.loadFITPanel()
+                    model.requestImport(.fit)
                 } label: {
                     Label("Load FIT File…", systemImage: "applewatch").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
-                Text("Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … You can also drop it on the window.")
+                Text(platformHint(
+                    mac: "Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … You can also drop it on the window.",
+                    phone: "Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … and save it to Files, or share it to ClipForge."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -39,10 +42,9 @@ struct OverlayPanel: View {
                 }
                 Spacer()
                 Menu {
-                    Button("Replace…") { model.loadFITPanel() }
+                    Button("Replace…") { model.requestImport(.fit) }
                     Button("Remove", role: .destructive) { model.removeFIT() }
                 } label: { Image(systemName: "ellipsis.circle") }
-                    .menuStyle(.borderlessButton)
                     .fixedSize()
             }
             Toggle("Show overlay", isOn: $model.overlay.enabled).toggleStyle(.switch)
@@ -95,8 +97,8 @@ struct OverlayPanel: View {
                     return Color(.sRGB, red: c.r, green: c.g, blue: c.b, opacity: c.a)
                 },
                 set: { color in
-                    let ns = NSColor(color).usingColorSpace(.sRGB) ?? .white
-                    model.overlay.textColor = RGBAColor(r: ns.redComponent, g: ns.greenComponent, b: ns.blueComponent, a: ns.alphaComponent)
+                    let c = color.resolve(in: environment)
+                    model.overlay.textColor = RGBAColor(r: Double(c.red), g: Double(c.green), b: Double(c.blue), a: Double(c.opacity))
                 }))
         }
         .disabled(!model.overlay.enabled)

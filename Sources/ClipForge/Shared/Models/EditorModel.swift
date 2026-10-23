@@ -1,8 +1,32 @@
 import AVFoundation
-import AppKit
 import Combine
 import CoreImage
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
+
+/// A kind of file the user can bring into the editor.
+enum ImportKind: String, Identifiable {
+    case video, fit, music
+
+    var id: String { rawValue }
+
+    var contentTypes: [UTType] {
+        switch self {
+        case .video: return SourceVideo.contentTypes
+        case .fit: return [UTType(filenameExtension: "fit") ?? .data, .data]
+        case .music: return [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
+        }
+    }
+
+    static func guess(for url: URL) -> ImportKind {
+        let ext = url.pathExtension.lowercased()
+        if ext == "fit" { return .fit }
+        if ["mp3", "m4a", "wav", "aac", "aiff", "aif", "caf", "flac"].contains(ext) { return .music }
+        return .video
+    }
+}
 
 @MainActor
 final class EditorModel: ObservableObject {
@@ -11,6 +35,10 @@ final class EditorModel: ObservableObject {
     @Published private(set) var thumbnails: [CGImage] = []
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
+    /// The inspector tab on screen (kept here so toolbar buttons can switch to it).
+    @Published var inspectorTab: InspectorTab = .trim
+    /// Set to ask the platform UI to show a file importer for this kind of file.
+    @Published var importRequest: ImportKind?
 
     // MARK: Edit settings
     @Published var timeline = EditTimeline(sourceDuration: 0) {
@@ -42,6 +70,9 @@ final class EditorModel: ObservableObject {
     @Published private(set) var currentSourceTime: Double = 0
     @Published private(set) var isPlaying = false
     @Published private(set) var scrubImage: CGImage?
+    /// True when live playback can't render effects (the iOS Simulator can't play any video composition).
+    /// Playback then shows the plain edit and effects appear on the paused frame; export is unaffected.
+    @Published private(set) var previewIsLimited = false
     @Published var markIn: Double?
     @Published var markOut: Double?
 
@@ -49,7 +80,9 @@ final class EditorModel: ObservableObject {
     @Published var exportPreset: ExportPreset = .hevcHighest
     @Published var exportContainer: ExportContainer = .mp4
     @Published private(set) var exportProgress: Double?
-    @Published private(set) var lastExportURL: URL?
+    @Published private(set) var lastExportURL: URL? { didSet { savedToPhotos = false } }
+    /// iOS: whether `lastExportURL` has been added to the photo library.
+    @Published var savedToPhotos = false
 
     let player = AVPlayer()
     let renderState = RenderState()
@@ -64,6 +97,7 @@ final class EditorModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var scrubGenerator: AVAssetImageGenerator?
     private var scrubRequest = 0
+    private var itemStatusObservation: AnyCancellable?
 
     init() {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
@@ -74,7 +108,12 @@ final class EditorModel: ObservableObject {
         }
         player.publisher(for: \.timeControlStatus)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in self?.isPlaying = status != .paused }
+            .sink { [weak self] status in
+                guard let self else { return }
+                self.isPlaying = status != .paused
+                guard self.previewIsLimited else { return }
+                if self.isPlaying { self.scrubImage = nil } else { self.showStillFrame() }
+            }
             .store(in: &cancellables)
     }
 
@@ -107,12 +146,47 @@ final class EditorModel: ObservableObject {
 
     // MARK: - Opening
 
-    func openVideoPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = SourceVideo.contentTypes
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a video from your iPhone, GoPro, DJI or Android device"
-        if panel.runModal() == .OK, let url = panel.url { openVideo(url) }
+    func requestImport(_ kind: ImportKind) {
+        importRequest = kind
+    }
+
+    /// Opens a file picked in a file importer, dropped on the window or sent from another app.
+    func importFile(_ url: URL, as kind: ImportKind? = nil) {
+        let kind = kind ?? ImportKind.guess(for: url)
+        if kind == .video { isLoading = true }
+        Task {
+            do {
+                let local = try await Self.localCopy(of: url)
+                switch kind {
+                case .video: openVideo(local)
+                case .fit: loadFIT(local)
+                case .music: setMusic(local)
+                }
+            } catch {
+                isLoading = false
+                errorMessage = "Couldn't open \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// On iOS, picked files are security-scoped and only readable for a moment, so they are copied into the
+    /// app's temporary folder (keeping the file name, which identifies GoPro/DJI clips). macOS reads them in place.
+    private static func localCopy(of url: URL) async throws -> URL {
+        #if os(macOS)
+        return url
+        #else
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Imported", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = folder.appendingPathComponent(url.lastPathComponent)
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.copyItem(at: url, to: destination)
+        }.value
+        return destination
+        #endif
     }
 
     func openVideo(_ url: URL) {
@@ -159,14 +233,6 @@ final class EditorModel: ObservableObject {
         if self.source?.url == source.url { thumbnails = images }
     }
 
-    func loadFITPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "fit") ?? .data]
-        panel.allowsOtherFileTypes = true
-        panel.message = "Choose a .fit activity file from Suunto, Garmin, Coros, …"
-        if panel.runModal() == .OK, let url = panel.url { loadFIT(url) }
-    }
-
     func loadFIT(_ url: URL) {
         do {
             let loaded = try FITActivity.load(url: url)
@@ -201,26 +267,10 @@ final class EditorModel: ObservableObject {
     }
 
     func handleDrop(_ urls: [URL]) {
-        for url in urls {
-            let ext = url.pathExtension.lowercased()
-            if ext == "fit" {
-                loadFIT(url)
-            } else if ["mp3", "m4a", "wav", "aac", "aiff", "aif", "caf", "flac"].contains(ext) {
-                setMusic(url)
-            } else {
-                openVideo(url)
-            }
-        }
+        for url in urls { importFile(url) }
     }
 
     // MARK: - Music
-
-    func chooseMusicPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
-        panel.message = "Choose background music"
-        if panel.runModal() == .OK, let url = panel.url { setMusic(url) }
-    }
 
     func setMusic(_ url: URL?) {
         guard let url else {
@@ -308,13 +358,39 @@ final class EditorModel: ObservableObject {
             let built = try await CompositionBuilder.build(source: source, timeline: timeline, audio: audio, renderer: renderer)
             guard !Task.isCancelled else { return }
             movie = built
-            player.replaceCurrentItem(with: built.makePlayerItem())
+            let item = built.makePlayerItem(withEffects: !previewIsLimited)
+            watchForPlaybackFailure(of: item, movie: built)
+            player.replaceCurrentItem(with: item)
             let t = CMTime(secondsValue: timeline.outputTime(forSource: sourceTime))
             await player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
-            if wasPlaying { player.play() }
+            if wasPlaying { player.play() } else { showStillFrame() }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Falls back to plain playback if the player can't render the effects composition.
+    private func watchForPlaybackFailure(of item: AVPlayerItem, movie: EditedMovie) {
+        itemStatusObservation = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self, status == .failed, self.player.currentItem === item else { return }
+                guard item.videoComposition != nil else {
+                    self.errorMessage = "Playback failed: \(item.error?.localizedDescription ?? "unknown error")"
+                    return
+                }
+                self.previewIsLimited = true
+                let plain = movie.makePlayerItem(withEffects: false)
+                self.watchForPlaybackFailure(of: plain, movie: movie)
+                self.player.replaceCurrentItem(with: plain)
+                self.seek(toSource: self.currentSourceTime)
+            }
+    }
+
+    /// In limited-preview mode, shows the paused frame with all effects (rendered like a scrub frame).
+    private func showStillFrame() {
+        guard previewIsLimited, !isPlaying else { return }
+        requestScrubFrame(at: currentSourceTime)
     }
 
     // MARK: - Transport
@@ -336,6 +412,7 @@ final class EditorModel: ObservableObject {
         currentSourceTime = clamped
         let out = timeline.outputTime(forSource: clamped)
         player.seek(to: CMTime(secondsValue: out), toleranceBefore: .zero, toleranceAfter: .zero)
+        showStillFrame()
     }
 
     func step(frames: Int) {
@@ -354,9 +431,7 @@ final class EditorModel: ObservableObject {
         let tolerance = CMTime(seconds: 0.5 / source.frameRate, preferredTimescale: 60_000)
         generator.requestedTimeToleranceBefore = tolerance
         generator.requestedTimeToleranceAfter = tolerance
-        Task {
-            generator.videoComposition = try? await CompositionBuilder.previewComposition(source: source, renderer: renderer)
-        }
+        generator.videoComposition = CompositionBuilder.previewComposition(source: source, renderer: renderer)
         return generator
     }
 
@@ -381,6 +456,7 @@ final class EditorModel: ObservableObject {
         scrubRequest += 1
         scrubGenerator?.cancelAllCGImageGeneration()
         seek(toSource: currentSourceTime)
+        guard !previewIsLimited else { return }
         Task {
             try? await Task.sleep(for: .milliseconds(80))
             scrubImage = nil
@@ -487,12 +563,23 @@ final class EditorModel: ObservableObject {
 
     // MARK: - Export
 
-    func exportPanel() {
-        guard let source, movie != nil else { return }
+    var exportFileName: String {
+        (source?.url.deletingPathExtension().lastPathComponent ?? "ClipForge") + "-edit." + exportContainer.rawValue
+    }
+
+    /// macOS asks where to save; iOS renders into a temporary file that the UI then saves to Photos or shares.
+    func requestExport() {
+        guard source != nil, movie != nil, exportProgress == nil else { return }
+        #if os(macOS)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [exportContainer == .mp4 ? .mpeg4Movie : .quickTimeMovie]
-        panel.nameFieldStringValue = source.url.deletingPathExtension().lastPathComponent + "-edit." + exportContainer.rawValue
+        panel.nameFieldStringValue = exportFileName
         if panel.runModal() == .OK, let url = panel.url { export(to: url) }
+        #else
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Exports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        export(to: folder.appendingPathComponent(exportFileName))
+        #endif
     }
 
     func export(to url: URL) {
