@@ -2,6 +2,8 @@
 
 A native macOS (15+) video editor for action and dive footage, built with SwiftUI, AVFoundation, Core Image and Vision.
 
+Requirements and their status are in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). Architecture notes and gotchas for contributors (and Claude) are in [CLAUDE.md](CLAUDE.md).
+
 ## Features
 
 - **Trim and cut**: drag the blue handles (or press `[` / `]`) to set the start and end. To remove a part in the middle, mark it with `I` / `O` and press ⌫. Removed parts can be restored from the Trim panel.
