@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 
 @main
-struct ClipForgePhoneApp: App {
+struct FitMoviePhoneApp: App {
     @StateObject private var model = EditorModel()
 
     init() {
@@ -14,7 +14,7 @@ struct ClipForgePhoneApp: App {
         WindowGroup {
             PhoneEditorView()
                 .environmentObject(model)
-                // Files shared to ClipForge from other apps (a .fit from the Suunto app, a video from Files, …).
+                // Files shared to FitMovie from other apps (a .fit from the Suunto app, a video from Files, …).
                 .onOpenURL { model.importFile($0) }
         }
     }

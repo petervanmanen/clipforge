@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Lets "Open in ClipForge" / the share sheet hand over FIT files, videos and music. -->
+	<!-- Lets "Open in FitMovie" / the share sheet hand over FIT files, videos and music. -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -14,7 +14,7 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>app.clipforge.fit</string>
+				<string>nl.petervanmanen.fitmovie.fit</string>
 			</array>
 		</dict>
 		<dict>
@@ -46,7 +46,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>app.clipforge.fit</string>
+			<string>nl.petervanmanen.fitmovie.fit</string>
 			<key>UTTypeDescription</key>
 			<string>FIT Activity</string>
 			<key>UTTypeConformsTo</key>

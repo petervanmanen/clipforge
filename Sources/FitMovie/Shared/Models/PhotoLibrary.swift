@@ -8,7 +8,7 @@ extension EditorModel {
         Task {
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else {
-                errorMessage = "ClipForge isn't allowed to add videos to Photos. You can change this in Settings › Privacy › Photos."
+                errorMessage = "FitMovie isn't allowed to add videos to Photos. You can change this in Settings › Privacy › Photos."
                 return
             }
             do {

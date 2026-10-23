@@ -1,4 +1,4 @@
-// Draws the ClipForge app icon and writes Resources/AppIcon.icns (macOS) and the iOS app-icon PNG.
+// Draws the FitMovie app icon and writes Resources/AppIcon.icns (macOS) and the iOS app-icon PNG.
 // Usage: swift scripts/make_icon.swift   (run from the repository root)
 import AppKit
 import CoreGraphics
@@ -120,7 +120,7 @@ for base in [16, 32, 128, 256, 512] {
 }
 writePNG(icon, pixels: 1024, to: root.appendingPathComponent("Resources/AppIcon.png"))
 
-let iosIconSet = root.appendingPathComponent("iOS/ClipForge/Assets.xcassets/AppIcon.appiconset")
+let iosIconSet = root.appendingPathComponent("iOS/FitMovie/Assets.xcassets/AppIcon.appiconset")
 try! fm.createDirectory(at: iosIconSet, withIntermediateDirectories: true)
 writePNG(drawIcon(fullBleed: true), pixels: 1024, to: iosIconSet.appendingPathComponent("AppIcon.png"), opaque: true)
 

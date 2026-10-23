@@ -1,14 +1,14 @@
 import AVFoundation
 import CoreImage
 import XCTest
-@testable import ClipForge
+@testable import FitMovie
 
 /// End-to-end: generate a shaky clip, then trim + cut + stabilize + filter + overlay + music and export it.
 final class PipelineTests: XCTestCase {
     private var dir: URL!
 
     override func setUpWithError() throws {
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("ClipForgeTests-\(UUID().uuidString)")
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("FitMovieTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 

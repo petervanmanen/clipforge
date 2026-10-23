@@ -22,7 +22,7 @@ struct OverlayPanel: View {
                 .controlSize(.large)
                 Text(platformHint(
                     mac: "Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … You can also drop it on the window.",
-                    phone: "Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … and save it to Files, or share it to ClipForge."))
+                    phone: "Export a FIT file from Suunto, Garmin Connect, Coros, Strava (original file), … and save it to Files, or share it to FitMovie."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

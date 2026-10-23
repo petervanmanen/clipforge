@@ -1,14 +1,14 @@
 # CLAUDE.md
 
-Guidance for Claude (or anyone) working on ClipForge. Requirements and their status are in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). Read both before changing anything.
+Guidance for Claude (or anyone) working on FitMovie. Requirements and their status are in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). Read both before changing anything.
 
 ## What this is
 
-ClipForge is a video editor for action and dive footage, with a **macOS app** (macOS 15+) and an **iPhone app** (iOS 18+). Both trim and cut, overlay FIT watch data, stabilize, apply filters and add background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies.
+FitMovie is a video editor for action and dive footage, with a **macOS app** (macOS 15+) and an **iPhone app** (iOS 18+). Both trim and cut, overlay FIT watch data, stabilize, apply filters and add background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies.
 
 The engine and the editing panels are shared source code that both apps compile:
-- **macOS:** a Swift package (`Package.swift`) with one executable target and one test target. Its target path, `Sources/ClipForge`, contains both `Shared/` and `Mac/`.
-- **iOS:** an Xcode project, `iOS/ClipForge.xcodeproj`, written by hand. It uses Xcode's folder-synced groups for `iOS/ClipForge/` and `../Sources/ClipForge/Shared/`, so new files in those folders are picked up automatically and the project file rarely needs editing.
+- **macOS:** a Swift package (`Package.swift`) with one executable target and one test target. Its target path, `Sources/FitMovie`, contains both `Shared/` and `Mac/`.
+- **iOS:** an Xcode project, `iOS/FitMovie.xcodeproj`, written by hand. It uses Xcode's folder-synced groups for `iOS/FitMovie/` and `../Sources/FitMovie/Shared/`, so new files in those folders are picked up automatically and the project file rarely needs editing.
 
 ## Commands
 
@@ -16,22 +16,22 @@ The engine and the editing panels are shared source code that both apps compile:
 swift build                    # macOS debug build
 swift test                     # 9 tests, ~6 s; includes real end-to-end exports
 KEEP_TEST_OUTPUT=1 swift test  # keep generated clips and frames (path printed in the log)
-./scripts/build_app.sh         # release universal macOS build → build/ClipForge.app (ad-hoc signed)
+./scripts/build_app.sh         # release universal macOS build → build/FitMovie.app (ad-hoc signed)
 swift scripts/make_icon.swift  # regenerate Resources/AppIcon.icns, AppIcon.png and the iOS app-icon PNG
 
 # iPhone app (simulator)
-xcodebuild -project iOS/ClipForge.xcodeproj -scheme ClipForge \
+xcodebuild -project iOS/FitMovie.xcodeproj -scheme FitMovie \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath build/ios-dd build
-xcrun simctl install booted build/ios-dd/Build/Products/Debug-iphonesimulator/ClipForge.app
-xcrun simctl launch booted app.clipforge.ClipForge
+xcrun simctl install booted build/ios-dd/Build/Products/Debug-iphonesimulator/FitMovie.app
+xcrun simctl launch booted nl.petervanmanen.fitmovie
 ```
 
 - `build_app.sh` reads `VERSION` and `BUILD_NUMBER` for Info.plist; CI sets them.
-- The Mac app can be opened with files: `open -a build/ClipForge.app clip.mov activity.fit music.m4a`.
+- The Mac app can be opened with files: `open -a build/FitMovie.app clip.mov activity.fit music.m4a`.
 - On iOS:
   - Add a test clip to the simulator's Photos with `xcrun simctl addmedia booted clip.mov`.
   - Send a FIT file to the running app with `xcrun simctl openurl booted file:///path/run.fit`. This goes through "Open in" → `onOpenURL` → `importFile`.
-- Installing on a real iPhone needs your own team: open the project in Xcode and set Signing & Capabilities → Team. Change the bundle ID `app.clipforge.ClipForge` if it's taken.
+- Installing on a real iPhone needs your own team: open the project in Xcode and set Signing & Capabilities → Team. Change the bundle ID `nl.petervanmanen.fitmovie` if it's taken.
 - To see the Mac app, `screencapture -l <windowID>` works. Get the ID from `CGWindowListCopyWindowInfo` with a small Swift script. Don't use `osascript` with System Events: it hangs on an Automation permission prompt.
 - Simulator driving tips:
   - Screenshots often lag one action behind, so take two.
@@ -41,7 +41,7 @@ xcrun simctl launch booted app.clipforge.ClipForge
 ## Layout
 
 ```
-Sources/ClipForge/
+Sources/FitMovie/
   Shared/                       Compiled into BOTH apps (keep it free of AppKit/UIKit except behind #if)
     FIT/FITParser.swift         Low-level FIT decoder → [FITMessage] (numeric fields only)
     FIT/FITActivity.swift       OverlayMetric, FITSeries (interpolation/smoothing), FITActivity.decode
@@ -61,15 +61,15 @@ Sources/ClipForge/
     UI/InspectorView.swift      Tabbed panels: Trim, Stabilize, Filters, Audio, Export (+ ExportResultView)
     UI/OverlayPanel.swift       The "Data" (FIT overlay) panel
   Mac/
-    ClipForgeApp.swift          App, menu commands, AppDelegate (Finder "Open With" → model.handleDrop)
+    FitMovieApp.swift          App, menu commands, AppDelegate (Finder "Open With" → model.handleDrop)
     MacContentView.swift        Window: preview, transport bar with keyboard shortcuts, inspector, drag & drop
 iOS/
-  ClipForge.xcodeproj           Hand-written project (objectVersion 77, synced folders, no shared scheme committed)
-  Info.plist                    Document types + imported UTI app.clipforge.fit (merged with generated keys)
-  ClipForge/ClipForgePhoneApp.swift  App entry, AVAudioSession .playback, onOpenURL
-  ClipForge/PhoneEditorView.swift    Phone layout, PhotosPicker import (PickedMovie), compact transport
-  ClipForge/Assets.xcassets     AppIcon (generated, opaque 1024 px), AccentColor
-Tests/ClipForgeTests/           FITTests (+ FITWriter), TimelineTests, PipelineTests (synthetic video/audio/FIT)
+  FitMovie.xcodeproj           Hand-written project (objectVersion 77, synced folders, no shared scheme committed)
+  Info.plist                    Document types + imported UTI nl.petervanmanen.fitmovie.fit (merged with generated keys)
+  FitMovie/FitMoviePhoneApp.swift  App entry, AVAudioSession .playback, onOpenURL
+  FitMovie/PhoneEditorView.swift    Phone layout, PhotosPicker import (PickedMovie), compact transport
+  FitMovie/Assets.xcassets     AppIcon (generated, opaque 1024 px), AccentColor
+Tests/FitMovieTests/           FITTests (+ FITWriter), TimelineTests, PipelineTests (synthetic video/audio/FIT)
 scripts/                        build_app.sh, make_icon.swift
 Resources/                      AppIcon.icns / AppIcon.png (generated; committed)
 .github/workflows/build.yml     CI: macOS tests + app zip; iOS simulator compile check
@@ -151,7 +151,7 @@ While dragging on the timeline or a trim handle, the preview shows `scrubImage` 
 
 ## Conventions
 - Match the existing style: value-type settings, one `EditorModel`, panels as private SwiftUI structs, comments only where something is non-obvious.
-- Keep the engine free of SwiftUI so it can be tested headless (`@testable import ClipForge`). Add a test for engine changes. `PipelineTests` shows how to generate synthetic video, audio and FIT data.
+- Keep the engine free of SwiftUI so it can be tested headless (`@testable import FitMovie`). Add a test for engine changes. `PipelineTests` shows how to generate synthetic video, audio and FIT data.
 - Commit messages end with a `Co-Authored-By:` line. The repository is `git@github.com:petervanmanen/clipforge.git` on branch `main`, and CI runs on every push.
 
 ## Known limitations / next steps

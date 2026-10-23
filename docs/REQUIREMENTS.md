@@ -1,6 +1,6 @@
-# ClipForge requirements
+# FitMovie requirements
 
-ClipForge is a video editor for action and dive footage, for macOS and iPhone. This file lists what the owner asked for and how each item is met. Status: ✅ done and tested · 🟡 done, not fully verified · ⬜ not done.
+FitMovie is a video editor for action and dive footage, for macOS and iPhone. This file lists what the owner asked for and how each item is met. Status: ✅ done and tested · 🟡 done, not fully verified · ⬜ not done.
 
 ## Original brief
 
@@ -69,7 +69,7 @@ Later requests:
 - Drawn in code by `scripts/make_icon.swift`, which outputs `Resources/AppIcon.icns` and `Resources/AppIcon.png`. The design is an ocean gradient, film strip, play button and red heart-rate trace.
 
 ### R8 CI build ✅
-- `.github/workflows/build.yml` runs on the `macos-15` runner. It runs `swift test`, builds the universal app and uploads `ClipForge.zip`. A `v*` tag also creates a GitHub release. A second job compiles the iPhone app for the simulator.
+- `.github/workflows/build.yml` runs on the `macos-15` runner. It runs `swift test`, builds the universal app and uploads `FitMovie.zip`. A `v*` tag also creates a GitHub release. A second job compiles the iPhone app for the simulator.
 - 🟡 The tag-release path has never been run.
 
 ### R10 License ✅
@@ -77,7 +77,7 @@ Later requests:
 
 ### R11 iPhone version ✅ / 🟡
 - Same engine and editing panels as the Mac app (shared source), in a phone layout: preview, transport, timeline, and the tabbed panels below. Portrait only, iPhone only (no iPad layout yet).
-- Import: from Photos (keeps HEVC and the recording date), from Files, or "Open in ClipForge" from other apps. A `.fit` from the Suunto app can be shared straight to ClipForge.
+- Import: from Photos (keeps HEVC and the recording date), from Files, or "Open in FitMovie" from other apps. A `.fit` from the Suunto app can be shared straight to FitMovie.
 - Export: rendered into a temporary file, then Save to Photos or Share.
 - Verified in the iOS 27 Simulator: Photos import, filters, the FIT overlay from "Open in", stabilization analysis, and export.
 - 🟡 The simulator can't play video with effects (an Apple simulator limitation). The app then plays the plain edit and shows effects on the paused frame. Live effects playback on a real iPhone is expected to work but hasn't been tested.

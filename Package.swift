@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClipForge",
+    name: "FitMovie",
     platforms: [.macOS(.v15)],
     targets: [
-        .executableTarget(name: "ClipForge", path: "Sources/ClipForge"),
-        .testTarget(name: "ClipForgeTests", dependencies: ["ClipForge"], path: "Tests/ClipForgeTests"),
+        .executableTarget(name: "FitMovie", path: "Sources/FitMovie"),
+        .testTarget(name: "FitMovieTests", dependencies: ["FitMovie"], path: "Tests/FitMovieTests"),
     ],
     swiftLanguageModes: [.v5]
 )

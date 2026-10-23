@@ -38,7 +38,7 @@ struct MacContentView: View {
                 Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
             }
         }
-        .navigationTitle(model.source?.url.lastPathComponent ?? "ClipForge")
+        .navigationTitle(model.source?.url.lastPathComponent ?? "FitMovie")
         .fileImports(for: model)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             Task { @MainActor in

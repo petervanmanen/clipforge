@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClipForge
+@testable import FitMovie
 
 /// Builds small FIT files in memory.
 struct FITWriter {

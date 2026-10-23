@@ -31,19 +31,19 @@ jobs:
         run: |
           export VERSION="${VERSION#v}"
           ./scripts/build_app.sh
-          ditto -c -k --keepParent build/ClipForge.app build/ClipForge.zip
+          ditto -c -k --keepParent build/FitMovie.app build/FitMovie.zip
 
       - name: Upload app
         uses: actions/upload-artifact@v7
         with:
-          name: ClipForge
-          path: build/ClipForge.zip
+          name: FitMovie
+          path: build/FitMovie.zip
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" build/ClipForge.zip --generate-notes
+        run: gh release create "${{ github.ref_name }}" build/FitMovie.zip --generate-notes
 
   ios:
     runs-on: macos-15
@@ -58,6 +58,6 @@ jobs:
       # Compile-only check for the simulator; installing on a device needs your own signing team (see README).
       - name: Build iPhone app
         run: >
-          xcodebuild -project iOS/ClipForge.xcodeproj -target ClipForge
+          xcodebuild -project iOS/FitMovie.xcodeproj -target FitMovie
           -sdk iphonesimulator -configuration Release
           CODE_SIGNING_ALLOWED=NO build

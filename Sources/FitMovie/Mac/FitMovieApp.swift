@@ -1,12 +1,12 @@
 import SwiftUI
 
 @main
-struct ClipForgeApp: App {
+struct FitMovieApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = EditorModel()
 
     var body: some Scene {
-        Window("ClipForge", id: "main") {
+        Window("FitMovie", id: "main") {
             MacContentView()
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 640)

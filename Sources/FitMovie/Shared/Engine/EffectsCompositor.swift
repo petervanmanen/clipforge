@@ -70,7 +70,7 @@ final class EffectsCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
     let sourcePixelBufferAttributes: [String: any Sendable]? = EffectsCompositor.bgra
     let requiredPixelBufferAttributesForRenderContext: [String: any Sendable] = EffectsCompositor.bgra
 
-    private let queue = DispatchQueue(label: "ClipForge.EffectsCompositor", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "FitMovie.EffectsCompositor", qos: .userInitiated)
     // Frames pass through without color management: pixel values are read and written as-is and the output
     // keeps the source's color tags, so an unfiltered frame is bit-for-bit what the decoder produced.
     private let context = CIContext(options: [.cacheIntermediates: false, .workingColorSpace: NSNull()])

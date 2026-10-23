@@ -564,7 +564,7 @@ final class EditorModel: ObservableObject {
     // MARK: - Export
 
     var exportFileName: String {
-        (source?.url.deletingPathExtension().lastPathComponent ?? "ClipForge") + "-edit." + exportContainer.rawValue
+        (source?.url.deletingPathExtension().lastPathComponent ?? "FitMovie") + "-edit." + exportContainer.rawValue
     }
 
     /// macOS asks where to save; iOS renders into a temporary file that the UI then saves to Photos or shares.

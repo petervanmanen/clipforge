@@ -20,7 +20,7 @@ struct PhoneEditorView: View {
                     editor
                 }
             }
-            .navigationTitle(model.source == nil ? "ClipForge" : "")
+            .navigationTitle(model.source == nil ? "FitMovie" : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if model.source != nil {
