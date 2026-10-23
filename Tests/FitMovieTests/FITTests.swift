@@ -147,3 +147,31 @@ final class TimelineTests: XCTestCase {
         XCTAssertLessThan(meanAcceleration(corrected), meanAcceleration(x) * 0.3)
     }
 }
+
+/// The sample files in docs/appstore/samples are what App Review uses; they must keep decoding correctly.
+final class SampleFITTests: XCTestCase {
+    private func sample(_ name: String) throws -> FITActivity {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try FITActivity.load(url: root.appendingPathComponent("docs/appstore/samples/\(name)"))
+    }
+
+    func testSampleRun() throws {
+        let run = try sample("sample-run.fit")
+        XCTAssertEqual(run.sportName, "Running")
+        XCTAssertEqual(run.endDate.timeIntervalSince(run.startDate), 1800, accuracy: 1)
+        XCTAssertEqual(run.utcOffset, 7200)
+        let mid = run.startDate.addingTimeInterval(900)
+        XCTAssertEqual(try XCTUnwrap(run.value(.heartRate, at: mid)), 155, accuracy: 6)
+        XCTAssertEqual(try XCTUnwrap(run.value(.speed, at: mid)), 3.35, accuracy: 0.2)
+        XCTAssertTrue(run.availableMetrics.contains(.altitude))
+    }
+
+    func testSampleDive() throws {
+        let dive = try sample("sample-dive.fit")
+        XCTAssertTrue(dive.isDive)
+        XCTAssertEqual(dive.endDate.timeIntervalSince(dive.startDate), 2400, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(dive.value(.depth, at: dive.startDate.addingTimeInterval(900))), 16.5, accuracy: 1.6)
+        XCTAssertEqual(try XCTUnwrap(dive.value(.depth, at: dive.startDate.addingTimeInterval(2000))), 5, accuracy: 0.4)
+        XCTAssertEqual(try XCTUnwrap(dive.value(.temperature, at: dive.startDate.addingTimeInterval(900))), 19, accuracy: 0.6)
+    }
+}
