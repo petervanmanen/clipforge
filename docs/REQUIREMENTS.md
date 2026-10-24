@@ -20,6 +20,7 @@ Later requests:
 9. Project documentation detailed enough for another Claude to continue the work (this file and `CLAUDE.md`).
 10. An open-source license (MIT).
 11. An iPhone version.
+12. Combining more than one video into one movie.
 
 ## Requirements in detail
 
@@ -83,6 +84,16 @@ Later requests:
 - 🟡 The simulator can't play video with effects (an Apple simulator limitation). The app then plays the plain edit and shows effects on the paused frame. Live effects playback on a real iPhone is expected to work but hasn't been tested.
 - 🟡 Not yet run on a physical iPhone, which needs your own signing team in Xcode. Memory and time for long 4K clips are unknown.
 - ⬜ App Store distribution.
+
+### R12 Combine clips ✅
+- A project holds any number of clips, played one after another. Add them on the Mac with Open (new movie), Add Clips (⇧⌘O), the + tile or drag & drop. On iPhone, use the + menu or pick several videos at once in Photos or Files; the picked order is kept.
+- Reorder (Move Earlier / Later) or remove clips from the clips bar (right-click or long-press) or the Trim panel's clip menu.
+- Each clip keeps its own trim, cuts and stabilization analysis. The Trim panel and timeline strip edit the selected clip, and the selection follows the playhead.
+- Filters, the data overlay, music and export settings apply to the whole movie. The overlay uses each clip's own recording time, so several clips from one activity each show the right data; the profile graph spans all clips.
+- The first clip sets the frame size. Clips with a different shape or orientation are fitted with black bars. The output frame rate is the highest of all clips.
+- Covered by: `ProjectTimelineTests` (time mapping, letterbox fit) and `MultiClipPipelineTests` (a landscape and a portrait clip trimmed, reordered, exported as one 4 s movie with letterboxing, then a clip removed).
+- 🟡 Checked by eye on the Mac and in the iOS Simulator with two clips; not yet tried with long real-world clips.
+- ⬜ No transitions (cross-fades) between clips yet.
 
 ## Non-functional
 - macOS 15 or later, universal binary (arm64 and x86_64). iOS 18 or later on iPhone.

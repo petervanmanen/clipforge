@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 /// iPhone layout: preview on top, transport and timeline below it, the editing panels underneath.
 struct PhoneEditorView: View {
     @EnvironmentObject private var model: EditorModel
-    @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
+    /// `.video` starts a new movie with the picked videos, `.clip` adds them to the current one.
+    @State private var photoImportKind: ImportKind = .video
     @State private var isImportingPhoto = false
 
     var body: some View {
@@ -14,7 +16,7 @@ struct PhoneEditorView: View {
             Group {
                 if model.source == nil {
                     WelcomeView(isLoading: isImportingPhoto || model.isLoading,
-                                choosePhoto: { showPhotoPicker = true },
+                                choosePhoto: { pickPhotos(.video) },
                                 chooseFile: { model.requestImport(.video) })
                 } else {
                     editor
@@ -26,10 +28,15 @@ struct PhoneEditorView: View {
                 if model.source != nil {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
-                            Button("From Photos", systemImage: "photo.on.rectangle") { showPhotoPicker = true }
-                            Button("From Files", systemImage: "folder") { model.requestImport(.video) }
+                            Section("Add clips to this movie") {
+                                addClipButtons
+                            }
+                            Section("Start a new movie") {
+                                Button("New from Photos", systemImage: "photo.on.rectangle") { pickPhotos(.video) }
+                                Button("New from Files", systemImage: "folder") { model.requestImport(.video) }
+                            }
                         } label: {
-                            Label("New Video", systemImage: "plus")
+                            Label("Add", systemImage: "plus")
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
@@ -43,11 +50,11 @@ struct PhoneEditorView: View {
                 }
             }
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .videos,
-                      preferredItemEncoding: .current)
-        .onChange(of: photoItem) { _, item in
-            guard let item else { return }
-            loadPhoto(item)
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems, maxSelectionCount: nil,
+                      selectionBehavior: .ordered, matching: .videos, preferredItemEncoding: .current)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            loadPhotos(items, as: photoImportKind)
         }
         .fileImports(for: model)
         .alert("Something went wrong", isPresented: Binding(
@@ -63,10 +70,15 @@ struct PhoneEditorView: View {
         VStack(spacing: 0) {
             PhonePreview()
                 .frame(maxWidth: .infinity)
-                .frame(height: 250)
+                .frame(height: 230)
             PhoneTransport()
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+            ClipsBar {
+                Menu { addClipButtons } label: { AddClipTile() }
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 6)
             TimelineStrip()
                 .padding(.horizontal, 14)
                 .padding(.bottom, 6)
@@ -75,19 +87,34 @@ struct PhoneEditorView: View {
         }
     }
 
-    private func loadPhoto(_ item: PhotosPickerItem) {
+    @ViewBuilder
+    private var addClipButtons: some View {
+        Button("From Photos", systemImage: "photo.on.rectangle") { pickPhotos(.clip) }
+        Button("From Files", systemImage: "folder") { model.requestImport(.clip) }
+    }
+
+    private func pickPhotos(_ kind: ImportKind) {
+        photoImportKind = kind
+        showPhotoPicker = true
+    }
+
+    /// Copies the picked videos (in the order they were picked) and hands them to the model together.
+    private func loadPhotos(_ items: [PhotosPickerItem], as kind: ImportKind) {
         isImportingPhoto = true
         Task {
             defer {
                 isImportingPhoto = false
-                photoItem = nil
+                photoItems = []
             }
-            do {
-                guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { return }
-                model.importFile(movie.url, as: .video)
-            } catch {
-                model.errorMessage = "Couldn't load the video from Photos: \(error.localizedDescription)"
+            var urls: [URL] = []
+            for item in items {
+                do {
+                    if let movie = try await item.loadTransferable(type: PickedMovie.self) { urls.append(movie.url) }
+                } catch {
+                    model.errorMessage = "Couldn't load a video from Photos: \(error.localizedDescription)"
+                }
             }
+            model.importFiles(urls, as: kind)
         }
     }
 }
@@ -124,7 +151,7 @@ private struct WelcomeView: View {
                 .foregroundStyle(.tint)
             VStack(spacing: 6) {
                 Text("Edit your footage").font(.title2.weight(.semibold))
-                Text("Trim, stabilize, add filters, music and your watch data from a FIT file.")
+                Text("Combine clips, trim, stabilize, add filters, music and your watch data from a FIT file.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }
@@ -192,7 +219,7 @@ private struct PhoneTransport: View {
                     .frame(width: 30)
             }
             VStack(alignment: .leading, spacing: 0) {
-                Text(formatTimecode(model.timeline.outputTime(forSource: model.currentSourceTime)))
+                Text(formatTimecode(model.currentOutputTime))
                     .font(.system(.subheadline, design: .monospaced))
                 Text(formatTimecode(model.outputDuration))
                     .font(.caption2.monospacedDigit())

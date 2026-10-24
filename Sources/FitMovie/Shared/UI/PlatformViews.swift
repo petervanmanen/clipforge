@@ -71,10 +71,11 @@ struct FileImportHandler: ViewModifier {
                 isPresented: Binding(
                     get: { model.importRequest != nil },
                     set: { if !$0 { model.importRequest = nil } }),
-                allowedContentTypes: model.importRequest?.contentTypes ?? [.data]
+                allowedContentTypes: model.importRequest?.contentTypes ?? [.data],
+                allowsMultipleSelection: model.importRequest?.allowsMultipleSelection ?? false
             ) { result in
-                guard let kind = presentedKind, case .success(let url) = result else { return }
-                model.importFile(url, as: kind)
+                guard let kind = presentedKind, case .success(let urls) = result else { return }
+                model.importFiles(urls, as: kind)
             }
             .onChange(of: model.importRequest) { _, kind in
                 if let kind { presentedKind = kind }

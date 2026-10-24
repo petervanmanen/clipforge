@@ -16,6 +16,13 @@ struct MacContentView: View {
                     PreviewArea()
                     Divider()
                     TransportBar()
+                    ClipsBar {
+                        Button { model.requestImport(.clip) } label: { AddClipTile() }
+                            .buttonStyle(.plain)
+                            .help("Add clips to the end of the movie (⇧⌘O)")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
                     TimelineStrip()
                         .padding(.horizontal, 16)
                         .padding(.bottom, 14)
@@ -31,14 +38,17 @@ struct MacContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { model.requestImport(.video) } label: { Label("Open", systemImage: "folder") }
-                    .help("Open a video (⌘O)")
+                    .help("Start a new movie from one or more videos (⌘O)")
+                Button { model.requestImport(.clip) } label: { Label("Add Clips", systemImage: "plus.rectangle.on.rectangle") }
+                    .disabled(model.source == nil)
+                    .help("Add clips to the end of the movie (⇧⌘O)")
                 Button { model.requestExport() } label: { Label("Export", systemImage: "square.and.arrow.up") }
                     .disabled(model.source == nil || model.exportProgress != nil)
                     .help("Export the edited video (⌘E)")
                 Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
             }
         }
-        .navigationTitle(model.source?.url.lastPathComponent ?? "FitMovie")
+        .navigationTitle(model.clips.count > 1 ? "\(model.clips.count) clips" : (model.source?.url.lastPathComponent ?? "FitMovie"))
         .fileImports(for: model)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             Task { @MainActor in
@@ -75,9 +85,9 @@ private struct EmptyStateView: View {
             Image(systemName: "film.stack")
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("Drop a video here")
+            Text("Drop one or more videos here")
                 .font(.title2.weight(.semibold))
-            Text("iPhone, GoPro, DJI and Android footage (MOV, MP4, HEVC, H.264)")
+            Text("Several clips are combined into one movie. iPhone, GoPro, DJI and Android footage (MOV, MP4, HEVC, H.264)")
                 .foregroundStyle(.secondary)
             Button("Open Video…") { model.requestImport(.video) }
                 .controlSize(.large)
@@ -161,7 +171,7 @@ private struct TransportBar: View {
             .font(.system(size: 15))
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(formatTimecode(model.timeline.outputTime(forSource: model.currentSourceTime)))
+                Text(formatTimecode(model.currentOutputTime))
                     .font(.system(.body, design: .monospaced))
                 Text("of \(formatTimecode(model.outputDuration))")
                     .font(.caption.monospacedDigit())

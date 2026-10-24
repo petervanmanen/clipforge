@@ -22,7 +22,8 @@ final class PipelineTests: XCTestCase {
 
     /// 6 s of 1280×720 noise texture with a slow pan plus random shake, optionally rotated like a portrait iPhone clip.
     static func makeShakyVideo(at url: URL, seconds: Int = 6, rotated: Bool = false,
-                               transform: CGAffineTransform? = nil) throws {
+                               transform: CGAffineTransform? = nil,
+                               creationDate: String = "2024-11-08T09:20:00Z") throws {
         let w = 1280, h = 720, fps = 30
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
@@ -38,7 +39,7 @@ final class PipelineTests: XCTestCase {
         writer.metadata = [{
             let item = AVMutableMetadataItem()
             item.identifier = .quickTimeMetadataCreationDate
-            item.value = "2024-11-08T09:20:00Z" as NSString
+            item.value = creationDate as NSString
             return item
         }()]
         writer.startWriting()
@@ -131,20 +132,20 @@ final class PipelineTests: XCTestCase {
         timeline.addCut(start: 2, end: 3)
 
         let state = RenderState()
-        var snapshot = RenderSnapshot()
-        snapshot.keptRanges = timeline.keptRanges
-        snapshot.sourceDuration = source.duration
-        snapshot.stabilization = StabilizationSettings(enabled: true, strength: 0.8, maxCrop: 0.12)
-        snapshot.stabilizationPath = Stabilizer.path(for: analysis, settings: snapshot.stabilization)
+        let clipID = UUID()
+        let stabilization = StabilizationSettings(enabled: true, strength: 0.8, maxCrop: 0.12)
+        var snapshot = RenderSnapshot.singleClip(
+            id: clipID, source: source, timeline: timeline,
+            stabilizationPath: Stabilizer.path(for: analysis, settings: stabilization), videoStartDate: source.creationDate)
+        snapshot.stabilization = stabilization
         snapshot.filter = FilterSettings(kind: .vivid)
         snapshot.activity = try FITActivity.load(url: fitURL)
-        snapshot.videoStartDate = source.creationDate
         state.snapshot = snapshot
         let renderer = FrameRenderer(state: state)
 
         var audio = AudioSettings()
         audio.musicURL = musicURL
-        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, audio: audio, renderer: renderer)
+        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, clipID: clipID, audio: audio, renderer: renderer)
         XCTAssertEqual(movie.duration, 4, accuracy: 0.02)
 
         let outURL = dir.appendingPathComponent("out.mp4")
@@ -176,13 +177,13 @@ final class PipelineTests: XCTestCase {
 
         let timeline = EditTimeline(sourceDuration: source.duration)
         let state = RenderState()
-        var snapshot = RenderSnapshot()
-        snapshot.keptRanges = timeline.keptRanges
-        snapshot.sourceDuration = source.duration
-        snapshot.stabilization = StabilizationSettings(enabled: true, strength: 0.8, maxCrop: 0.12)
-        snapshot.stabilizationPath = Stabilizer.path(for: analysis, settings: snapshot.stabilization)
+        let clipID = UUID()
+        let stabilization = StabilizationSettings(enabled: true, strength: 0.8, maxCrop: 0.12)
+        var snapshot = RenderSnapshot.singleClip(id: clipID, source: source, timeline: timeline,
+                                                 stabilizationPath: Stabilizer.path(for: analysis, settings: stabilization))
+        snapshot.stabilization = stabilization
         state.snapshot = snapshot
-        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, audio: AudioSettings(),
+        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, clipID: clipID, audio: AudioSettings(),
                                                        renderer: FrameRenderer(state: state))
         let outURL = dir.appendingPathComponent("stabilized.mp4")
         try await VideoExporter.export(movie, to: outURL, preset: .h264Highest, container: .mp4) { _ in }
@@ -203,12 +204,12 @@ final class PipelineTests: XCTestCase {
         XCTAssertEqual(source.displaySize, CGSize(width: 720, height: 1280))
 
         let state = RenderState()
-        var snapshot = RenderSnapshot()
+        let clipID = UUID()
         let timeline = EditTimeline(sourceDuration: source.duration)
-        snapshot.keptRanges = timeline.keptRanges
+        var snapshot = RenderSnapshot.singleClip(id: clipID, source: source, timeline: timeline)
         snapshot.filter = FilterSettings(kind: .mono)
         state.snapshot = snapshot
-        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, audio: AudioSettings(),
+        let movie = try await CompositionBuilder.build(source: source, timeline: timeline, clipID: clipID, audio: AudioSettings(),
                                                        renderer: FrameRenderer(state: state))
         let outURL = dir.appendingPathComponent("portrait-out.mov")
         try await VideoExporter.export(movie, to: outURL, preset: .hevcHighest, container: .mov) { _ in }
@@ -270,7 +271,7 @@ final class PipelineTests: XCTestCase {
         return Double(sum) / Double(w * h * 3)
     }
 
-    private func averageBrightness(_ image: CGImage, rect: CGRect) -> Double? {
+    func averageBrightness(_ image: CGImage, rect: CGRect) -> Double? {
         guard let cropped = image.cropping(to: rect),
               let ctx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)

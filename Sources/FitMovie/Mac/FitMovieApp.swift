@@ -17,6 +17,9 @@ struct FitMovieApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("Open Video…") { model.requestImport(.video) }
                     .keyboardShortcut("o")
+                Button("Add Clips…") { model.requestImport(.clip) }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                    .disabled(model.source == nil)
                 Button("Load FIT File…") { model.requestImport(.fit) }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(model.source == nil)

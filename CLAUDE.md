@@ -4,7 +4,7 @@ Guidance for Claude (or anyone) working on FitMovie. Requirements and their stat
 
 ## What this is
 
-FitMovie is a video editor for action and dive footage, with a **macOS app** (macOS 15+) and an **iPhone app** (iOS 18+). Both trim and cut, overlay FIT watch data, stabilize, apply filters and add background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies.
+FitMovie is a video editor for action and dive footage, with a **macOS app** (macOS 15+) and an **iPhone app** (iOS 18+). Both combine several clips into one movie, trim and cut, overlay FIT watch data, stabilize, apply filters and add background music. It is written in SwiftUI with AVFoundation, Core Image and Vision, and has no third-party dependencies.
 
 The engine and the editing panels are shared source code that both apps compile:
 - **macOS:** a Swift package (`Package.swift`) with one executable target and one test target. Its target path, `Sources/FitMovie`, contains both `Shared/` and `Mac/`.
@@ -47,8 +47,9 @@ Sources/FitMovie/
     FIT/FITActivity.swift       OverlayMetric, FITSeries (interpolation/smoothing), FITActivity.decode
     Models/EditTimeline.swift   Trim/cut model, source↔output time mapping, formatTimecode
     Models/Settings.swift       FilterKind (CI filter chains), Filter/Stabilization/Overlay/Audio settings, export presets
-    Models/EditorModel.swift    @MainActor ObservableObject: the single view model (player, rebuilds, scrub,
-                                analysis, import/export requests, preview fallback). ImportKind lives here too.
+    Models/Project.swift        Clip, ClipInput, ClipSegment, ProjectTimeline (combined timeline ↔ clip/source time)
+    Models/EditorModel.swift    @MainActor ObservableObject: the single view model (clips, selection, player, rebuilds,
+                                scrub, analysis, import/export requests, preview fallback). ImportKind lives here too.
     Models/PhotoLibrary.swift   iOS only: save the export to Photos
     Engine/SourceVideo.swift    Loads an asset: tracks, orientation, natural/display size, fps, codec, creation date
     Engine/EffectsCompositor.swift  Our AVVideoCompositing: orientation + per-frame CI render (used everywhere)
@@ -57,7 +58,8 @@ Sources/FitMovie/
     Engine/Stabilizer.swift     Motion analysis (Vision), path smoothing, per-frame apply
     Engine/OverlayRenderer.swift  Draws the metric panel + graph with CoreGraphics/CoreText, cached
     UI/PlatformViews.swift      PlayerSurface (AVPlayerView / AVPlayerLayer), FileImportHandler, LimitedPreviewBadge
-    UI/TimelineStrip.swift      Filmstrip with trim handles, cuts, In/Out selection, playhead
+    UI/ClipsBar.swift           Clip chips in playback order (select, move, remove) + add tile; ClipActions menu
+    UI/TimelineStrip.swift      Filmstrip of the SELECTED clip with trim handles, cuts, In/Out selection, playhead
     UI/InspectorView.swift      Tabbed panels: Trim, Stabilize, Filters, Audio, Export (+ ExportResultView)
     UI/OverlayPanel.swift       The "Data" (FIT overlay) panel
   Mac/
@@ -80,22 +82,35 @@ docs/PRIVACY.md                 Privacy policy (linked from App Store Connect; k
 
 ## How it works
 
-### Two time bases
-- **Source time** is seconds in the original file. Trim points, cuts, stabilization analysis, the FIT sync and the timeline view all use source time.
-- **Output time** is seconds in the edited result, which is what the AVPlayer and the export use.
-- `EditTimeline.keptRanges` (trim minus cuts) defines the mapping in both directions. `outputTime(forSource:)` snaps a time inside a removed part to the next kept frame.
+### Clips and time bases
+- A project is `EditorModel.clips: [Clip]`, played in order. Each clip has its own `EditTimeline` (trim and cuts), thumbnails and `StabilizationAnalysis`.
+- **Source time** is seconds in one clip's file. Trim points, cuts, stabilization, the FIT sync and the timeline strip use it.
+- **Output time** is seconds in the combined movie, which is what the AVPlayer and the export use.
+- `ProjectTimeline.segments` lists every clip's kept ranges back to back as `ClipSegment`s.
+  - `locate(outputTime)` gives (clip, source time).
+  - `outputTime(clipID:sourceTime:)` goes the other way; times inside removed parts snap to the next kept frame.
+- **Selected clip:** `EditorModel.timeline`, `source`, `thumbnails` and `currentSourceTime` refer to the selected clip, so the Trim panel and timeline strip work unchanged. `timeline`'s setter writes back into `clips`.
+  - During playback `followPlayhead` moves the selection to whichever clip is playing.
+  - `currentOutputTime` is the position in the whole movie.
+- **Frame size:** the first clip's display size (`ProjectTimeline.renderSize`). Other clips are fitted with black bars by `FrameRenderer.fit`, after stabilization (which works in the clip's own pixels) and before filters and the overlay.
+- **Frame rate:** the highest of all clips.
 
 ### The edit pipeline
-1. `CompositionBuilder.build` creates an `AVMutableComposition`. It inserts each kept range of the first video track and the chosen audio track, then the music (looped as needed). It also builds an `AVMutableAudioMix` for volumes and fades.
-2. The video composition comes from `EffectsComposition.make`: our own `AVVideoCompositing` class (`EffectsCompositor`) plus a single `EffectsInstruction` that carries the render closure. For each frame the compositor:
+1. `CompositionBuilder.build(clips:)` creates an `AVMutableComposition`:
+   - one video track holding every kept range of every clip, back to back;
+   - one audio track with each clip's sound (its first non-spatial audio track);
+   - the music, looped as needed, plus an `AVMutableAudioMix` for volumes and fades.
+2. The video composition comes from `EffectsComposition.make(trackID:pieces:…)`: our own `AVVideoCompositing` class (`EffectsCompositor`) with one `EffectsInstruction` per kept range ("piece"). Each piece carries its clip's orientation and a render closure that already knows its clip ID and source start, so frames at clip boundaries are exact. For each frame the compositor:
    - takes the source pixel buffer (BGRA) and rotates it to display orientation with `orientationTransform`;
-   - calls the closure, which is `FrameRenderer.render`: stabilization, then the filter (blended by intensity), then adjustments and vignette, then the overlay;
+   - calls the piece's closure, which is `FrameRenderer.render(_:clipID:sourceTime:)`: stabilization, then fitting to the frame size, then the filter (blended by intensity), adjustments and vignette, then the overlay;
    - renders the result into the output buffer.
+   - The composition track's `preferredTransform` is the first clip's; it only matters for the simulator's plain-playback fallback.
 3. The same `EffectsComposition.make` is used for player, export, scrub previews (an `AVAssetImageGenerator` on the raw source) and stabilization analysis, so every path sees identically oriented frames.
 4. **Colour is passed through, not managed.** The `CIContext` has `workingColorSpace: NSNull()`, input images are created with `.colorSpace: NSNull()`, rendering uses `colorSpace: nil`, and the source buffer's colour tags are copied to the output. An unfiltered frame is therefore bit-for-bit what the decoder gave. HDR clips come out tagged as HDR but rendered through an 8-bit BGRA buffer; true HDR preservation is still open.
 
 ### Settings reach the renderer without a rebuild
 - `RenderState` holds an immutable `RenderSnapshot` behind a lock, and the compositor reads it on its own queue.
+- `RenderSnapshot` holds the segments, per-clip `ClipInfo` (stabilization path, recording start), the frame size, the overlay graph window (span of all clips) and the project-wide settings. `RenderSnapshot.singleClip(...)` builds one for a single clip (tests).
 - `EditorModel.pushSnapshot()` writes a new snapshot whenever filter, overlay, stabilization or FIT settings change, then calls `refreshFrame()`.
 - `refreshFrame()` redraws the paused frame by assigning `item.videoComposition = vc.mutableCopy()`. ⚠️ This is still not confirmed by hand on a Mac or an iPhone. Check it first if a paused preview looks stale.
 - Only changes to the timeline or audio rebuild the composition (debounced by 120 ms).
@@ -108,21 +123,29 @@ The iOS 27 Simulator cannot play any `AVPlayerItem` that has a video composition
 Export is unaffected. On a real device and on macOS the effects composition is expected to play normally, and the fallback never triggers. ⚠️ Live effects playback has not been verified on a physical iPhone.
 
 ### Scrubbing
-While dragging on the timeline or a trim handle, the preview shows `scrubImage` from an `AVAssetImageGenerator` on the raw source, using `previewComposition` (`FrameRenderer.render(_:sourceTime:)`). Effects therefore show while scrubbing, even inside removed parts. Trim-handle drags keep a `pendingTimeline` and commit it when the drag ends.
+While dragging on the timeline or a trim handle, the preview shows `scrubImage` from an `AVAssetImageGenerator` on the selected clip's raw source. There is one generator per clip, cached in `scrubGenerators`, and they are rebuilt when the frame size changes. They use `previewComposition(clipID:…)`, which renders at the project frame size, so effects and letterboxing show while scrubbing, even inside removed parts. Trim-handle drags keep a `pendingTimeline` and commit it when the drag ends.
 
 ### Import and export per platform
 - `EditorModel.requestImport(kind)` sets `importRequest`, and `FileImportHandler` (`.fileImports(for:)`) shows SwiftUI's `fileImporter` on both platforms.
+  - It allows multiple selection for videos.
+  - `ImportKind.video` starts a new movie and `.clip` appends.
+  - Videos without an explicit kind (drag & drop, "Open in") start a movie if there is none, and are appended otherwise.
+  - `importFiles` loads videos one after another so the chosen order is kept.
 - `importFile(_:as:)` copies the file on iOS, because picked URLs are security-scoped and only readable briefly. The copy goes to `tmp/Imported/<uuid>/<original name>`, and the original name is kept because it identifies GoPro and DJI clips.
 - iOS also imports from Photos via `PhotosPicker` with `preferredItemEncoding: .current`, so HEVC is not transcoded and the creation date survives. `PickedMovie` is a `Transferable` that copies the file.
 - `requestExport()`: on macOS this is an `NSSavePanel`; on iOS it renders into `tmp/Exports/`, after which `ExportResultView` offers Save to Photos (add-only permission) and a Share sheet.
 
 ### Stabilization
+- **Per clip:** `analyzeStabilization()` analyzes every clip that has no analysis yet, in order, with progress across all clips. Clips added while stabilization is on are analyzed automatically. Paths are cached per clip in `stabilizationPaths` and cleared when strength or crop change.
 - **Analysis** reads frames through the effects compositor at 640 px on the long side, using Lanczos downscaling because plain scaling aliases and reads as false motion. Vision's `VNTranslationalImageRegistrationRequest` runs with the previous frame as reference and the current frame as target, and the cumulative trajectory is stored in display pixels. Jumps larger than 25% of the width count as scene cuts and are ignored.
 - **Path:** two box-filter passes with radius = strength × fps × 2 frames. The ends are extended by point reflection, so a steady pan stays a straight line instead of flattening at the clip ends. Then four passes clamp the correction to the crop margin and re-smooth it.
 - **Apply** shifts the frame by the correction, zooms by `1/(1-maxCrop)` about the centre, and uses `clampedToExtent` and `cropped`.
 
 ### Overlay and FIT
-- The FIT time for a frame is `videoStartDate + sourceTime + overlay.timeOffset`.
+- The FIT time for a frame is `clip's videoStartDate + sourceTime + overlay.timeOffset`.
+  - `EditorModel.videoStartDates` gives each clip its own recording start.
+  - A clip without a recording date is assumed to follow the previous one, and the first such clip uses the activity start.
+  - "Align to Activity Start" aligns the first clip; the offset is shared by all clips.
 - With "camera clock is local time" on (GoPro and DJI), the FIT file's UTC offset is subtracted from the video start.
 - The panel is drawn with CoreText, which is thread-safe, and cached by its displayed values.
 - Record fields used: 253 timestamp, 3 heart rate, 6/73 speed (÷1000), 5 distance (÷100), 92 depth (÷1000), 13 temperature, 2/78 altitude (÷5 − 500).

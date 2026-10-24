@@ -1,32 +1,54 @@
 import AVFoundation
 import CoreImage
 
-/// Renders every frame of a single-video-track asset through a Core Image closure.
+/// Renders every frame of a video track through a Core Image closure.
 ///
 /// This replaces `AVMutableVideoComposition.videoComposition(with:applyingCIFiltersWithHandler:)`, whose
 /// compositor fails to start playback in the iOS Simulator (AVPlayerItem error -12784) although export works.
 /// Owning the compositor also pins the pixel format to BGRA and makes the orientation handling explicit.
+/// One video track can hold parts of several clips; each `Piece` carries its own clip's orientation.
 enum EffectsComposition {
     typealias Render = @Sendable (_ frame: CIImage, _ time: CMTime) -> CIImage
 
+    /// A stretch of the track whose frames come from one clip, with the closure that renders them.
+    struct Piece {
+        let timeRange: CMTimeRange
+        let naturalSize: CGSize
+        let preferredTransform: CGAffineTransform
+        let render: Render
+    }
+
     /// - Parameters:
-    ///   - trackID: the video track in `asset` to render.
-    ///   - naturalSize/preferredTransform: of that track; frames are rotated to display orientation before `render`.
-    ///   - renderSize: output size; defaults to the display size. `render` must produce an image of this size at the origin.
+    ///   - pieces: consecutive, gap-free time ranges covering the whole track; frames are rotated to each piece's
+    ///     display orientation before its `render` is called with the composition time.
+    ///   - renderSize: output size. `render` must produce an image of this size at the origin.
+    static func make(trackID: CMPersistentTrackID, pieces: [Piece], frameDuration: CMTime,
+                     renderSize: CGSize) -> AVMutableVideoComposition {
+        let composition = AVMutableVideoComposition()
+        composition.customVideoCompositorClass = EffectsCompositor.self
+        composition.renderSize = CGSize(width: renderSize.width.rounded(), height: renderSize.height.rounded())
+        composition.frameDuration = frameDuration
+        composition.instructions = pieces.map { piece in
+            EffectsInstruction(
+                timeRange: piece.timeRange, trackID: trackID,
+                orientation: orientationTransform(naturalSize: piece.naturalSize, preferredTransform: piece.preferredTransform),
+                render: piece.render)
+        }
+        return composition
+    }
+
+    /// A composition over a whole single-track source.
+    /// - Parameter renderSize: defaults to the source's display size.
     static func make(asset: AVAsset, trackID: CMPersistentTrackID, duration: CMTime, naturalSize: CGSize,
                      preferredTransform: CGAffineTransform, frameDuration: CMTime, renderSize: CGSize? = nil,
                      render: @escaping Render) -> AVMutableVideoComposition {
-        let orientation = orientationTransform(naturalSize: naturalSize, preferredTransform: preferredTransform)
-        let displaySize = CGRect(origin: .zero, size: naturalSize).applying(orientation).size
-
-        let composition = AVMutableVideoComposition()
-        composition.customVideoCompositorClass = EffectsCompositor.self
-        composition.renderSize = renderSize ?? CGSize(width: displaySize.width.rounded(), height: displaySize.height.rounded())
-        composition.frameDuration = frameDuration
-        composition.instructions = [EffectsInstruction(
-            timeRange: CMTimeRange(start: .zero, duration: duration), trackID: trackID,
-            orientation: orientation, render: render)]
-        return composition
+        let displaySize = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform).size
+        return make(
+            trackID: trackID,
+            pieces: [Piece(timeRange: CMTimeRange(start: .zero, duration: duration), naturalSize: naturalSize,
+                           preferredTransform: preferredTransform, render: render)],
+            frameDuration: frameDuration,
+            renderSize: renderSize ?? CGSize(width: abs(displaySize.width), height: abs(displaySize.height)))
     }
 
     /// Maps a frame in Core Image space (origin bottom-left) to display orientation, also with its origin at zero.

@@ -6,6 +6,7 @@ Requirements and their status are in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md
 
 ## Features
 
+- **Combine clips**: add several videos (⌘O / ⇧⌘O on the Mac, the **+** on iPhone, or pick several in Photos) and they play one after another as one movie. Reorder or remove clips in the clips bar. Each clip keeps its own trim, cuts and stabilization, and the watch data follows each clip's own recording time.
 - **Trim and cut**: drag the blue handles (or press `[` / `]`) to set the start and end. To remove a part in the middle, mark it with `I` / `O` and press ⌫. Removed parts can be restored from the Trim panel.
 - **Data overlay from a FIT file**: heart rate, pace, speed, distance, elevation, temperature, elapsed time and, for dives, depth. You can choose the metrics, position, layout, size, colour, background, units and an optional profile graph. The data is synced to the video's recording date. You can set a fine offset, and there is a "camera clock is local time" option for GoPro and DJI.
 - **Stabilization**: camera motion is measured with Vision translational image registration. The path is then smoothed, and the frame is shifted and zoomed so the edges stay hidden. *Smoothness* and *max crop* are adjustable.

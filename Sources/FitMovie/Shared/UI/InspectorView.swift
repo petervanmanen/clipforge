@@ -119,6 +119,26 @@ private struct TrimPanel: View {
     @EnvironmentObject private var model: EditorModel
 
     var body: some View {
+        if let clip = model.selectedClip, let number = model.clips.firstIndex(where: { $0.id == clip.id }) {
+            PanelSection(title: model.clips.count > 1 ? "Clip \(number + 1) of \(model.clips.count)" : "Clip") {
+                HStack {
+                    Image(systemName: "film").foregroundStyle(Color.accentColor)
+                    Text(clip.name).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Menu {
+                        ClipActions(clipID: clip.id)
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .menuIndicator(.hidden)
+                        .buttonStyle(.borderless)
+                        .fixedSize()
+                }
+                Text(model.clips.count > 1
+                     ? "Trimming applies to this clip. Clips play one after another; tap one above the timeline to edit it."
+                     : "Add more clips with + to combine them into one movie.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+
         PanelSection(title: "Start & end") {
             row("Start", model.timeline.trimStart) { model.setTrimStartToPlayhead() }
             row("End", model.timeline.trimEnd) { model.setTrimEndToPlayhead() }
@@ -179,9 +199,16 @@ private struct TrimPanel: View {
 
         PanelSection(title: "Result") {
             HStack {
-                Text("Length")
+                Text(model.clips.count > 1 ? "Movie length" : "Length")
                 Spacer()
                 Text(formatTimecode(model.outputDuration)).monospacedDigit()
+            }
+            if model.clips.count > 1 {
+                HStack {
+                    Text("This clip")
+                    Spacer()
+                    Text(formatTimecode(model.timeline.outputDuration)).monospacedDigit().foregroundStyle(.secondary)
+                }
             }
             if let source = model.source {
                 HStack {
@@ -192,7 +219,11 @@ private struct TrimPanel: View {
                 }
                 .font(.callout)
             }
-            Button("Reset All Edits") { model.timeline.reset() }
+            if let source = model.source, model.clips.count > 1, source.displaySize != model.renderSize {
+                Text("This clip has a different shape than the first clip, so it is shown with black bars. The first clip sets the movie's frame size.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button(model.clips.count > 1 ? "Reset This Clip" : "Reset All Edits") { model.timeline.reset() }
                 .disabled(model.timeline.isUnedited)
         }
     }
@@ -222,8 +253,8 @@ private struct StabilizePanel: View {
                     ProgressView(value: progress)
                     Button("Cancel") { model.cancelAnalysis() }.controlSize(.small)
                 }
-            } else if model.stabilizationAnalysis != nil {
-                Label("Motion analyzed", systemImage: "checkmark.circle.fill")
+            } else if model.isStabilizationAnalyzed {
+                Label(model.clips.count > 1 ? "Motion analyzed for all clips" : "Motion analyzed", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green).font(.callout)
             } else {
                 Text("The clip is analyzed frame by frame (Vision image registration) the first time you turn this on.")
@@ -241,8 +272,8 @@ private struct StabilizePanel: View {
         }
         .disabled(!model.stabilization.enabled)
 
-        if model.stabilizationAnalysis != nil {
-            Button("Re-analyze") { model.analyzeStabilization() }
+        if model.isStabilizationAnalyzed {
+            Button("Re-analyze") { model.analyzeStabilization(reanalyze: true) }
                 .disabled(model.stabilizationProgress != nil)
         }
     }

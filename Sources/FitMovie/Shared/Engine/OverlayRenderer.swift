@@ -21,10 +21,11 @@ final class OverlayRenderer: @unchecked Sendable {
         var accent: CGColor
     }
 
-    func overlay(for snapshot: RenderSnapshot, sourceTime: Double, frame: CGRect) -> CIImage? {
+    /// - Parameter videoClock: when this frame was recorded, on the camera's clock (before the user's fine offset).
+    func overlay(for snapshot: RenderSnapshot, videoClock: Date, frame: CGRect) -> CIImage? {
         let settings = snapshot.overlay
-        guard settings.enabled, let activity = snapshot.activity, let videoStart = snapshot.videoStartDate else { return nil }
-        let date = videoStart.addingTimeInterval(sourceTime + settings.timeOffset)
+        guard settings.enabled, let activity = snapshot.activity else { return nil }
+        let date = videoClock.addingTimeInterval(settings.timeOffset)
 
         let metrics = OverlayMetric.allCases.filter { settings.metrics.contains($0) && activity.availableMetrics.contains($0) }
         let tiles = metrics.map { tile(for: $0, value: activity.value($0, at: date), units: settings.units) }
@@ -35,16 +36,17 @@ final class OverlayRenderer: @unchecked Sendable {
 
         let base = min(frame.width, frame.height) * 0.055 * settings.scale
         let graphWidth = (base * 7).rounded()
-        // The graph spans the whole source clip; the marker position is quantized to whole pixels for caching.
-        let windowStart = videoStart.addingTimeInterval(settings.timeOffset)
-        let windowLength = max(snapshot.sourceDuration, 1)
-        let markerX = Int((sourceTime / windowLength * Double(graphWidth)).rounded())
+        // The graph spans all clips; the marker position is quantized to whole pixels for caching.
+        let window = snapshot.overlayWindow ?? videoClock...videoClock.addingTimeInterval(1)
+        let windowStart = window.lowerBound.addingTimeInterval(settings.timeOffset)
+        let windowLength = max(window.upperBound.timeIntervalSince(window.lowerBound), 1)
+        let markerX = Int((videoClock.timeIntervalSince(window.lowerBound) / windowLength * Double(graphWidth)).rounded())
 
         let key = [
             tiles.map { $0.value }.joined(separator: "|"),
             "\(Int(frame.width))x\(Int(frame.height))", "\(graphMetric?.rawValue ?? "-")", "\(markerX)",
             "\(settings.scale)", "\(settings.layout)", "\(settings.textColor)", "\(settings.backgroundOpacity)",
-            "\(settings.units)", "\(settings.timeOffset)", "\(snapshot.videoStartDate?.timeIntervalSince1970 ?? 0)",
+            "\(settings.units)", "\(settings.timeOffset)", "\(window.lowerBound.timeIntervalSince1970)", "\(windowLength)",
             activity.fileName,
         ].joined(separator: "#")
 
